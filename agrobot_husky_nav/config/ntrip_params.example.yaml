@@ -1,0 +1,11 @@
+# Copy to /home/robot/ntrip_ibge.yaml on the robot, fill in the credentials, chmod 600.
+# IBGE RBMC caster, station RSSL0 (Sao Leopoldo, ~1.3 km from the SENAI/ISI yard).
+/**:
+  ros__parameters:
+    host: gps-ntrip.ibge.gov.br
+    port: 2101
+    mountpoint: RSSL0
+    ntrip_version: "None"
+    authenticate: true
+    username: CHANGE_ME
+    password: "CHANGE_ME"

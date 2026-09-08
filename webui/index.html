@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Husky Waypoints</title>
+<style>
+  :root { --bg:#111418; --panel:#1b2027; --line:#2c343e; --fg:#e6e9ee; --dim:#98a2b3; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#4da3ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; }
+  header { display:flex; gap:12px; align-items:center; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header input { width:220px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); display:inline-block; margin-right:6px; }
+  .dot.on { background:var(--ok); }
+  main { display:grid; grid-template-columns: 1fr 340px; gap:0; height:calc(100vh - 46px); }
+  @media (max-width:900px) { main { grid-template-columns:1fr; height:auto; } }
+  #view { position:relative; background:#0c0f12; }
+  canvas { width:100%; height:100%; display:block; cursor:crosshair; }
+  #legend { position:absolute; left:8px; bottom:8px; color:var(--dim); font-size:12px; }
+  #zoom { position:absolute; right:8px; top:8px; display:flex; gap:4px; }
+  aside { background:var(--panel); border-left:1px solid var(--line); padding:10px; overflow:auto; display:flex; flex-direction:column; gap:10px; }
+  section { border:1px solid var(--line); border-radius:6px; padding:8px; }
+  h3 { margin:0 0 6px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  button { background:#262d37; color:var(--fg); border:1px solid #3a4553; border-radius:5px; padding:6px 10px; cursor:pointer; }
+  button:hover { background:#303947; }
+  button.primary { background:#1f4f8a; border-color:#2b6cb0; }
+  button.danger { background:#6b1f1f; border-color:#a33; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  input, textarea { background:#0f1318; color:var(--fg); border:1px solid #3a4553; border-radius:5px; padding:5px; font:inherit; }
+  textarea { width:100%; height:110px; font:12px/1.3 ui-monospace, monospace; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td { padding:2px 4px; border-bottom:1px solid var(--line); }
+  td:first-child { color:var(--dim); width:45%; }
+  .state { font-size:22px; font-weight:600; }
+  .state.RUNNING { color:var(--ok); } .state.BLOCKED, .state.PAUSED { color:var(--warn); } .state.ABORTED { color:var(--bad); } .state.DONE { color:var(--acc); }
+  .health { color:var(--warn); min-height:1.2em; }
+  #log { font:11px/1.3 ui-monospace, monospace; color:var(--dim); max-height:120px; overflow:auto; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Husky A300 · waypoints</strong>
+  <span><span id="conn" class="dot"></span><span id="connTxt">desconectado</span></span>
+  <input id="wsUrl" placeholder="ws://10.0.0.60:8765">
+  <button id="btnConnect">Conectar</button>
+  <span style="color:var(--dim)">namespace <code id="nsTxt">a300_00096</code></span>
+</header>
+<main>
+  <div id="view">
+    <canvas id="cv"></canvas>
+    <div id="zoom"><button data-z="0.5">−</button><button data-z="2">+</button><button id="btnCenter">centrar</button><button id="btnOrigin">origem aqui</button></div>
+    <div id="legend">clique no mapa para adicionar waypoint · norte para cima · grade 1 m / 5 m</div>
+  </div>
+  <aside>
+    <section>
+      <div class="state" id="state">—</div>
+      <div class="health" id="health"></div>
+      <table>
+        <tr><td>waypoint</td><td id="wp">—</td></tr>
+        <tr><td>distância</td><td id="dist">—</td></tr>
+        <tr><td>erro de rumo</td><td id="herr">—</td></tr>
+        <tr><td>obstáculo à frente</td><td id="front">—</td></tr>
+        <tr><td>GNSS fix (1/2)</td><td id="fix">—</td></tr>
+        <tr><td>joystick</td><td id="joy">—</td></tr>
+        <tr><td>lat / lon</td><td id="latlon">—</td></tr>
+        <tr><td>rumo (ENU)</td><td id="yaw">—</td></tr>
+        <tr><td>vel. máx.</td><td id="vmax">—</td></tr>
+        <tr><td>fonte de pose</td><td id="src">—</td></tr>
+      </table>
+    </section>
+    <section>
+      <h3>Controle</h3>
+      <div class="row">
+        <button id="btnStart" class="primary">▶ Start</button>
+        <button id="btnPause">❚❚ Pause</button>
+        <button id="btnStop" class="danger">■ Stop</button>
+      </div>
+    </section>
+    <section>
+      <h3>Missão</h3>
+      <div class="row">
+        <button data-rel="5,0">5 m frente</button>
+        <button data-rel="10,0">10 m frente</button>
+        <button data-rel="5,0 5,5 0,5 0,0">quadrado 5 m</button>
+        <button data-rel="10,0 10,3 0,3 0,6 10,6">fileiras 10×3</button>
+      </div>
+      <div class="row"><label>tolerância <input id="tol" type="number" step="0.1" value="0.6" style="width:70px"> m</label>
+        <button id="btnUndo">desfazer</button><button id="btnClear">limpar</button></div>
+      <textarea id="mission" placeholder="waypoints:&#10;  gps_points:&#10;    - latitude: ...&#10;      longitude: ..."></textarea>
+      <div class="row"><button id="btnSend" class="primary">Enviar missão ao robô</button><button id="btnFromText">usar texto</button></div>
+    </section>
+    <section><h3>Log</h3><div id="log"></div></section>
+  </aside>
+</main>
+<script>
+(() => {
+const NS = '/a300_00096';
+const STATUS_TOPIC = NS + '/gps_waypoint_follower/status';
+const SET_TOPIC = NS + '/gps_waypoint_follower/set_mission';
+const SRV = { start: NS + '/gps_waypoint_follower/start', pause: NS + '/gps_waypoint_follower/pause', stop: NS + '/gps_waypoint_follower/stop' };
+const R = 6371008.8;
+const $ = id => document.getElementById(id);
+const log = (...a) => { const el = $('log'); el.textContent = (new Date().toLocaleTimeString() + ' ' + a.join(' ') + '\n' + el.textContent).slice(0, 4000); };
+
+// ------------------------------------------------------------------ state
+let ws = null, status = null, statusAt = 0, subId = null, statusChannel = null, services = {}, clientChanId = 1, callId = 0;
+let origin = null;              // {lat, lon} of the local frame
+let trail = [];                 // [E, N]
+let wps = [];                   // [{lat, lon}]
+let scale = 12;                 // px per metre
+let pan = { e: 0, n: 0 };       // view centre in metres
+let pending = {};               // service calls
+
+// ------------------------------------------------------------------ geo
+const toEN = (lat, lon) => {
+  if (!origin) return [0, 0];
+  const e = (lon - origin.lon) * Math.PI / 180 * Math.cos(origin.lat * Math.PI / 180) * R;
+  const n = (lat - origin.lat) * Math.PI / 180 * R;
+  return [e, n];
+};
+const fromEN = (e, n) => ({
+  lat: origin.lat + (n / R) * 180 / Math.PI,
+  lon: origin.lon + (e / (R * Math.cos(origin.lat * Math.PI / 180))) * 180 / Math.PI,
+});
+
+// ------------------------------------------------------------------ CDR helpers (std_msgs/String, std_srvs/Trigger)
+const enc = new TextEncoder(), dec = new TextDecoder();
+function cdrString(s) {
+  const b = enc.encode(s); const len = b.length + 1; const padded = (4 + 4 + len + 3) & ~3;
+  const out = new Uint8Array(padded); out.set([0, 1, 0, 0], 0);
+  new DataView(out.buffer).setUint32(4, len, true); out.set(b, 8); return out;
+}
+function cdrReadString(dv, off) { const len = dv.getUint32(off, true); return dec.decode(new Uint8Array(dv.buffer, dv.byteOffset + off + 4, Math.max(0, len - 1))); }
+
+// ------------------------------------------------------------------ websocket (foxglove_bridge 3.x, subprotocol foxglove.sdk.v1)
+// status topic arrives CDR-encoded; client publish uses JSON encoding; service calls must be CDR.
+function connect() {
+  const url = $('wsUrl').value.trim();
+  try { localStorage.setItem('wsUrl', url); } catch (e) {}
+  if (ws) { try { ws.close(); } catch (e) {} }
+  ws = new WebSocket(url, 'foxglove.sdk.v1');   // foxglove_bridge >= 3.x ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { setConn(true, 'conectado, aguardando tópicos'); };
+  ws.onclose = () => { setConn(false, 'desconectado'); statusChannel = null; services = {}; setTimeout(() => { if (!ws || ws.readyState === 3) connect(); }, 3000); };
+  ws.onerror = () => { log('erro de websocket'); };
+  ws.onmessage = ev => {
+    if (typeof ev.data === 'string') { onJson(JSON.parse(ev.data)); return; }
+    const dv = new DataView(ev.data); const op = dv.getUint8(0);
+    if (op === 1) {                                        // message data
+      const payload = 1 + 4 + 8; onStatus(cdrReadString(dv, payload + 4));
+    } else if (op === 3) {                                 // service response
+      const cid = dv.getUint32(5, true); const encLen = dv.getUint32(9, true); const p = 13 + encLen;
+      const ok = dv.getUint8(p + 4) === 1; const msg = cdrReadString(dv, p + 8);   // Trigger_Response (CDR)
+      log('serviço', pending[cid] || cid, ok ? 'ok' : 'falhou', msg); delete pending[cid];
+    }
+  };
+}
+function setConn(on, txt) { $('conn').className = 'dot' + (on ? ' on' : ''); $('connTxt').textContent = txt; }
+function onJson(m) {
+  if (m.op === 'serverInfo') {
+    log('bridge:', m.name, '| capabilities:', (m.capabilities || []).join(','));
+    ws.send(JSON.stringify({ op: 'advertise', channels: [{ id: clientChanId, topic: SET_TOPIC, encoding: 'json', schemaName: 'std_msgs/msg/String' }] }));
+  } else if (m.op === 'advertise') {
+    for (const ch of m.channels) if (ch.topic === STATUS_TOPIC && statusChannel === null) {
+      statusChannel = ch.id; subId = 1; ws.send(JSON.stringify({ op: 'subscribe', subscriptions: [{ id: subId, channelId: ch.id }] }));
+      setConn(true, 'conectado · status OK'); log('assinado', STATUS_TOPIC);
+    }
+  } else if (m.op === 'unadvertise') {
+    if (m.channelIds.includes(statusChannel)) { statusChannel = null; setConn(true, 'seguidor fora do ar'); }
+  } else if (m.op === 'advertiseServices') {
+    for (const s of m.services) services[s.name] = s.id;
+    if (services[SRV.start]) log('serviços do seguidor disponíveis');
+  } else if (m.op === 'unadvertiseServices') {
+    for (const id of m.serviceIds) for (const k in services) if (services[k] === id) delete services[k];
+  } else if (m.op === 'serviceCallFailure') { log('serviço falhou:', m.message); }
+  else if (m.op === 'status') { log('bridge status:', m.message); }
+}
+function callService(name) {
+  const id = services[name]; if (!id) { log('serviço não disponível:', name); return; }
+  const cid = ++callId; pending[cid] = name.split('/').pop();
+  const payload = new Uint8Array([0, 1, 0, 0, 0]); const encb = enc.encode('cdr');   // Trigger_Request: CDR header + dummy byte
+  const buf = new Uint8Array(1 + 4 + 4 + 4 + encb.length + payload.length); const dv = new DataView(buf.buffer);
+  buf[0] = 2; dv.setUint32(1, id, true); dv.setUint32(5, cid, true); dv.setUint32(9, encb.length, true);
+  buf.set(encb, 13); buf.set(payload, 13 + encb.length); ws.send(buf);
+}
+function publishMission(text) {
+  if (!ws || ws.readyState !== 1) { log('sem conexão'); return; }
+  const body = enc.encode(JSON.stringify({ data: text })); const buf = new Uint8Array(5 + body.length); buf[0] = 1;
+  new DataView(buf.buffer).setUint32(1, clientChanId, true); buf.set(body, 5); ws.send(buf); log('missão enviada:', wps.length, 'pontos');
+}
+
+// ------------------------------------------------------------------ status
+function onStatus(txt) {
+  try { status = JSON.parse(txt); } catch (e) { return; }
+  statusAt = Date.now();
+  const s = status;
+  if (s.lat != null) {
+    if (!origin) { origin = { lat: s.lat, lon: s.lon }; log('origem do mapa fixada na posição atual'); }
+    const [e, n] = toEN(s.lat, s.lon); const last = trail[trail.length - 1];
+    if (!last || Math.hypot(e - last[0], n - last[1]) > 0.05) { trail.push([e, n]); if (trail.length > 3000) trail.shift(); }
+  }
+  $('state').textContent = s.state || '—'; $('state').className = 'state ' + (s.state || '');
+  $('health').textContent = s.health ? '⚠ ' + s.health : (s.reason || '');
+  $('wp').textContent = s.waypoint ? `${s.waypoint} / ${s.total}` : (s.total ? `— / ${s.total}` : '—');
+  $('dist').textContent = s.distance_m != null ? s.distance_m.toFixed(2) + ' m' : '—';
+  $('herr').textContent = s.heading_error_deg != null ? s.heading_error_deg.toFixed(1) + '°' : '—';
+  $('front').textContent = s.front_min_m != null ? s.front_min_m.toFixed(2) + ' m' : 'livre';
+  $('fix').textContent = s.gnss_fix ? s.gnss_fix.map(f => f === 8 ? 'RTK fixed' : f === 7 ? 'RTK float' : f).join(' / ') : (s.fp_init_status != null ? 'fusão init=' + s.fp_init_status : '—');
+  $('joy').textContent = s.joy_ok ? 'ok' : 'SEM JOYSTICK';
+  $('latlon').textContent = s.lat != null ? `${s.lat.toFixed(7)}  ${s.lon.toFixed(7)}` : '—';
+  $('yaw').textContent = s.yaw_deg != null ? s.yaw_deg.toFixed(1) + '°' : '—';
+  $('vmax').textContent = s.max_linear != null ? s.max_linear + ' m/s' : '—';
+  $('src').textContent = s.pose_source || '—';
+  $('btnStart').disabled = !services[SRV.start]; $('btnPause').disabled = !services[SRV.pause]; $('btnStop').disabled = !services[SRV.stop];
+}
+
+// ------------------------------------------------------------------ mission editing
+function missionText() {
+  const tol = parseFloat($('tol').value) || 0.6;
+  return 'waypoints:\n  gps_points:\n' + wps.map(w => `    - latitude: ${w.lat.toFixed(8)}\n      longitude: ${w.lon.toFixed(8)}\n      tolerance: ${tol}\n`).join('');
+}
+function refreshMission() { $('mission').value = missionText(); draw(); }
+function addRelative(list) {
+  if (!status || status.yaw_deg == null || status.lat == null) { log('sem pose do robô para trajeto relativo'); return; }
+  const yaw = status.yaw_deg * Math.PI / 180; const [re, rn] = toEN(status.lat, status.lon);
+  for (const pair of list.split(' ')) {
+    const [f, l] = pair.split(',').map(Number);
+    const e = re + f * Math.cos(yaw) - l * Math.sin(yaw), n = rn + f * Math.sin(yaw) + l * Math.cos(yaw);
+    wps.push(fromEN(e, n));
+  }
+  refreshMission();
+}
+function parseMissionText(t) {
+  const out = []; const re = /latitude:\s*(-?[\d.]+)[\s\S]*?longitude:\s*(-?[\d.]+)/g; let m;
+  while ((m = re.exec(t))) out.push({ lat: parseFloat(m[1]), lon: parseFloat(m[2]) });
+  return out;
+}
+
+// ------------------------------------------------------------------ canvas
+const cv = $('cv'), ctx = cv.getContext('2d');
+function resize() { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio; draw(); }
+const toPx = (e, n) => [cv.width / 2 + (e - pan.e) * scale * devicePixelRatio, cv.height / 2 - (n - pan.n) * scale * devicePixelRatio];
+const toM = (x, y) => [pan.e + (x - cv.width / 2) / (scale * devicePixelRatio), pan.n - (y - cv.height / 2) / (scale * devicePixelRatio)];
+function draw() {
+  const W = cv.width, H = cv.height, dpr = devicePixelRatio; ctx.clearRect(0, 0, W, H);
+  // grid
+  const step = 1, [e0, n1] = toM(0, 0), [e1, n0] = toM(W, H);
+  ctx.lineWidth = 1;
+  for (let e = Math.floor(e0); e <= e1; e += step) { const [x] = toPx(e, 0); ctx.strokeStyle = e % 5 === 0 ? '#2a3340' : '#181e26'; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let n = Math.floor(n0); n <= n1; n += step) { const [, y] = toPx(0, n); ctx.strokeStyle = n % 5 === 0 ? '#2a3340' : '#181e26'; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  // origin
+  const [ox, oy] = toPx(0, 0); ctx.strokeStyle = '#4da3ff55'; ctx.beginPath(); ctx.moveTo(ox - 8 * dpr, oy); ctx.lineTo(ox + 8 * dpr, oy); ctx.moveTo(ox, oy - 8 * dpr); ctx.lineTo(ox, oy + 8 * dpr); ctx.stroke();
+  // trail
+  if (trail.length > 1) { ctx.strokeStyle = '#3fb95088'; ctx.lineWidth = 2 * dpr; ctx.beginPath(); trail.forEach(([e, n], i) => { const [x, y] = toPx(e, n); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); }
+  // waypoints (local list = editing; robot list from status if editing list empty)
+  const list = wps.length ? wps : (status && status.waypoints ? status.waypoints.map(([lat, lon]) => ({ lat, lon })) : []);
+  const active = wps.length ? -1 : (status ? status.wp_index : -1);
+  ctx.lineWidth = 1.5 * dpr; ctx.strokeStyle = wps.length ? '#d29922' : '#4da3ff'; ctx.beginPath();
+  list.forEach((w, i) => { const [x, y] = toPx(...toEN(w.lat, w.lon)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+  list.forEach((w, i) => {
+    const [x, y] = toPx(...toEN(w.lat, w.lon)); ctx.beginPath(); ctx.arc(x, y, 6 * dpr, 0, 7);
+    ctx.fillStyle = i === active ? '#f85149' : (wps.length ? '#d29922' : '#4da3ff'); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `${11 * dpr}px system-ui`; ctx.fillText(i + 1, x + 8 * dpr, y - 8 * dpr);
+  });
+  // robot
+  if (status && status.lat != null) {
+    const [x, y] = toPx(...toEN(status.lat, status.lon)); const yaw = (status.yaw_deg || 0) * Math.PI / 180; const L = 0.5 * scale * dpr;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-yaw);
+    ctx.fillStyle = Date.now() - statusAt < 2000 ? '#3fb950' : '#98a2b3'; ctx.beginPath(); ctx.moveTo(L * 1.4, 0); ctx.lineTo(-L * 0.8, L * 0.7); ctx.lineTo(-L * 0.8, -L * 0.7); ctx.closePath(); ctx.fill();
+    if (status.front_min_m != null) { ctx.strokeStyle = status.front_min_m < 1.8 ? '#f85149' : '#d2992288'; ctx.beginPath(); ctx.arc(0, 0, status.front_min_m * scale * dpr, -0.6, 0.6); ctx.stroke(); }
+    ctx.restore();
+  }
+  ctx.fillStyle = '#98a2b3'; ctx.font = `${11 * dpr}px system-ui`; ctx.fillText(`${scale.toFixed(0)} px/m`, 8 * dpr, 14 * dpr);
+}
+cv.addEventListener('click', ev => {
+  if (!origin) { log('sem origem ainda (aguardando pose)'); return; }
+  const r = cv.getBoundingClientRect(); const [e, n] = toM((ev.clientX - r.left) * devicePixelRatio, (ev.clientY - r.top) * devicePixelRatio);
+  wps.push(fromEN(e, n)); refreshMission();
+});
+let drag = null;
+cv.addEventListener('mousedown', ev => { drag = { x: ev.clientX, y: ev.clientY, pe: pan.e, pn: pan.n, moved: false }; });
+window.addEventListener('mousemove', ev => { if (!drag) return; const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; if (Math.hypot(dx, dy) > 4) drag.moved = true; if (drag.moved) { pan.e = drag.pe - dx / scale; pan.n = drag.pn + dy / scale; draw(); } });
+window.addEventListener('mouseup', () => { if (drag && drag.moved) { setTimeout(() => {}, 0); cv.addEventListener('click', e => e.stopImmediatePropagation(), { capture: true, once: true }); } drag = null; });
+cv.addEventListener('wheel', ev => { ev.preventDefault(); scale = Math.min(120, Math.max(2, scale * (ev.deltaY < 0 ? 1.2 : 1 / 1.2))); draw(); }, { passive: false });
+
+// ------------------------------------------------------------------ UI wiring
+$('btnConnect').onclick = connect;
+document.querySelectorAll('#zoom [data-z]').forEach(b => b.onclick = () => { scale = Math.min(120, Math.max(2, scale * parseFloat(b.dataset.z))); draw(); });
+$('btnCenter').onclick = () => { if (status && status.lat != null) { [pan.e, pan.n] = toEN(status.lat, status.lon); draw(); } };
+$('btnOrigin').onclick = () => { if (status && status.lat != null) { origin = { lat: status.lat, lon: status.lon }; trail = []; pan = { e: 0, n: 0 }; refreshMission(); } };
+document.querySelectorAll('[data-rel]').forEach(b => b.onclick = () => addRelative(b.dataset.rel));
+$('btnUndo').onclick = () => { wps.pop(); refreshMission(); };
+$('btnClear').onclick = () => { wps = []; refreshMission(); };
+$('btnFromText').onclick = () => { wps = parseMissionText($('mission').value); refreshMission(); log('texto lido:', wps.length, 'pontos'); };
+$('btnSend').onclick = () => { if (!wps.length) wps = parseMissionText($('mission').value); if (!wps.length) { log('missão vazia'); return; } publishMission(missionText()); wps = []; setTimeout(draw, 800); };
+$('btnStart').onclick = () => callService(SRV.start);
+$('btnPause').onclick = () => callService(SRV.pause);
+$('btnStop').onclick = () => callService(SRV.stop);
+
+let saved = ''; try { saved = localStorage.getItem('wsUrl') || ''; } catch (e) {}
+$('wsUrl').value = saved || ('ws://' + (location.hostname && location.protocol.startsWith('http') ? location.hostname : '10.0.0.60') + ':8765');
+window.addEventListener('resize', resize); resize(); setInterval(draw, 500); connect();
+})();
+</script>
+</body>
+</html>

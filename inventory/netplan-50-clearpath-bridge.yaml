@@ -1,0 +1,33 @@
+ 
+network:
+  version: 2
+  renderer: networkd
+  bridges:
+    br0:
+      dhcp4: 'yes'
+      dhcp6: 'no'
+      interfaces: []
+      addresses: []
+  ethernets:
+    enp3s0:
+      dhcp4: 'yes'
+      dhcp6: 'no'
+    enp4s0:
+      dhcp4: 'yes'
+      dhcp6: 'no'
+  wifis:
+    wlp2s0:
+      optional: true
+      access-points:
+        Agriwing:
+          password: <redacted>
+        Monielly:
+          password: <redacted>
+        Igor:
+          password: <redacted>
+      dhcp4: true
+      dhcp4-overrides:
+        send-hostname: true
+      nameservers:
+        addresses: []
+

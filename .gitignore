@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.log
+node_modules/
+*.bak*
+# credentials never belong here (they live on the robot: ~/ntrip_ibge.yaml, ~/ntrip_tunnel.yaml)
+*ntrip_ibge*.yaml
+*ntrip_tunnel.yaml

@@ -1,0 +1,11 @@
+# Mission for gps_waypoint_follower. Same shape as husky_navigation/config/gps_waypoints.yaml.
+# Coordinates below are ~10 m around the robot's position on 2026-09-08 (SENAI/ISI yard). EDIT before use.
+waypoints:
+  gps_points:
+    - latitude: -29.786093
+      longitude: -51.163562
+      tolerance: 1.0
+    - latitude: -29.786180
+      longitude: -51.163562
+    - latitude: -29.786180
+      longitude: -51.163680

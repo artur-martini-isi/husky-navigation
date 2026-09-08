@@ -1,0 +1,14 @@
+waypoints:
+  gps_points:
+    - latitude: -29.79723705
+      longitude: -51.15094625
+      tolerance: 0.6
+    - latitude: -29.79722886
+      longitude: -51.15089530
+      tolerance: 0.6
+    - latitude: -29.79718465
+      longitude: -51.15090474
+      tolerance: 0.6
+    - latitude: -29.79719284
+      longitude: -51.15095569
+      tolerance: 0.6
