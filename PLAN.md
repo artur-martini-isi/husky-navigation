@@ -159,6 +159,11 @@ para arquitetura e operação, `agrobot_husky_nav/README.md` para o pacote.
   comando angular cai de 0,107 para 0,012 rad/s e as trocas de sinal de 102 para 10.
 - Os dois nós de movimento autônomo (`goto_point` e `explore`) usam o mesmo planejador e o mesmo
   seguidor, para não divergirem.
+- Verificado no robô: 100 s de corrida, dois marcadores, desvio padrão do comando angular de
+  0,064 rad/s e 11 trocas de sinal (0,11/s), a 0,19 m/s de média.
+- Ajuste seguinte: a reamostragem também no trecho reto de dois pontos. Sem ela o caminho reto saía
+  com dois pontos, o ponto perseguido virava o próprio destino a metros de distância e o desvio
+  lateral era corrigido devagar demais.
 
 ## Próximos passos
 1. **Botão Options do joystick**: o índice 9 não inicia (o controle expõe 15 botões; Círculo=1, L1=4,

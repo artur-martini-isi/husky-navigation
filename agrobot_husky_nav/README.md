@@ -400,7 +400,9 @@ Agora o caminho passa por três etapas antes de sair do planejador:
 2. **arredondamento de quina** (Chaikin, `smooth_iterations`) — ponto que cairia em célula proibida
    é descartado, melhor um canto vivo do que raspar a parede;
 3. **reamostragem uniforme** (`sample_step`) — a perseguição mede distância ao longo do caminho, e
-   trecho desigual faria o ponto perseguido saltar.
+   trecho desigual faria o ponto perseguido saltar. Vale também no trecho reto de dois pontos: sem
+   ela o ponto perseguido seria o próprio destino, a metros de distância, e o desvio lateral seria
+   corrigido devagar demais.
 
 O encurtamento nunca aproxima o caminho mais da parede do que o A* já havia aceitado: a visada só
 vale se o custo máximo ao longo dela não passar do custo máximo do trecho original. Sem essa
@@ -429,3 +431,13 @@ sinal do comando caem de 102 para 10. O caminho é a causa dominante; o controle
 
 O estado publicado em `~/status` traz `cmd` (v e w efetivamente comandados), `lookahead_m` e
 `turning_in_place`, que é o que se olha quando o movimento não parecer suave.
+
+**Medido no robô em 2026-09-11**, dois marcadores seguidos, 100 s de corrida, 850 comandos com o
+robô andando: desvio padrão do comando angular **0,064 rad/s** e **11 trocas de sinal em 100 s**
+(0,11/s), velocidade média 0,19 m/s com teto de 0,30. Comandos típicos em reta: `[0.28, 0.02]`.
+
+**Nota de operação**: nessa corrida o robô passou 25 s a 0,07-0,09 m/s com um obstáculo a 0,87 m no
+cone frontal. Não é travamento, é o freio de proximidade: entre `obstacle_stop_distance` (0,6 m) e
+`obstacle_slow_distance` (1,5 m) a velocidade cai proporcionalmente, e a 0,87 m sobra 30% dela. Se
+isso for conservador demais para o ambiente, o parâmetro a mexer é `obstacle_slow_distance`, não o
+de parada.

@@ -241,8 +241,12 @@ class GridPlanner:
         if self.smooth and len(caminho) > 2:
             caminho = self.encurtar(caminho, blocked, cost)
         pts = [self.cell_to_world(iy, ix, eff_res, origin) for iy, ix in caminho]
-        if self.smooth and len(pts) > 2:
-            pts = self.arredondar(pts, blocked, eff_res, origin)
+        if self.smooth and len(pts) > 1:
+            if len(pts) > 2:
+                pts = self.arredondar(pts, blocked, eff_res, origin)
+            # a reamostragem vale mesmo no trecho reto de dois pontos: sem ela o ponto perseguido
+            # seria o próprio destino, a metros de distância, e o robô corrigiria desvio lateral
+            # devagar demais. Com ela, o alvo fica sempre a `lookahead` à frente, sobre a reta.
             pts = self.reamostrar(pts)
         return pts
 
