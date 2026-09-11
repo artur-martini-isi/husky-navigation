@@ -38,6 +38,7 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
 from agrobot_husky_nav.grid_planner import GridPlanner
+from agrobot_husky_nav.path_follow import PurePursuit
 
 IDLE, EXPLORING, BLOCKED, PAUSED, DONE, ABORTED = 'IDLE', 'EXPLORING', 'BLOCKED', 'PAUSED', 'DONE', 'ABORTED'
 
@@ -65,13 +66,22 @@ class Explore(Node):
         p('max_candidates', 6)             # fronteiras planejadas antes de escolher
         p('allow_unknown', True)           # permite caminho por área desconhecida (com penalidade)
         p('unknown_penalty', 2.5)
-        # seguimento de caminho
-        p('lookahead', 0.8)                # ponto perseguido à frente, no caminho
+        p('smooth_path', True)             # tira a escada de 45 graus do A*
+        p('smooth_iterations', 2)
+        p('sample_step', 0.15)
+        # seguimento de caminho (pure pursuit por curvatura, ver path_follow.py)
+        p('lookahead_min', 0.5)
+        p('lookahead_gain', 1.2)
+        p('lookahead_max', 1.2)
         p('max_linear', 0.3)
         p('min_linear', 0.08)
         p('max_angular', 0.7)
         p('k_angular', 1.3)
         p('turn_in_place_angle', 0.7)
+        p('turn_resume_angle', 0.25)
+        p('max_linear_accel', 0.4)
+        p('max_angular_accel', 1.5)
+        p('curvature_slowdown', 1.2)
         p('control_rate', 10.0)
         # segurança
         p('obstacle_stop_distance', 0.6)
@@ -95,7 +105,6 @@ class Explore(Node):
         self.blacklist_time = float(g('blacklist_time'))
         self.max_candidates = int(g('max_candidates'))
         self.allow_unknown, self.unknown_pen = bool(g('allow_unknown')), float(g('unknown_penalty'))
-        self.lookahead = float(g('lookahead'))
         self.max_lin, self.min_lin = float(g('max_linear')), float(g('min_linear'))
         self.max_ang, self.k_ang = float(g('max_angular')), float(g('k_angular'))
         self.turn_in_place = float(g('turn_in_place_angle'))
@@ -123,7 +132,18 @@ class Explore(Node):
 
         self.planner = GridPlanner(robot_radius=self.radius, clearance_margin=self.clearance,
                                    plan_resolution=self.plan_res, allow_unknown=self.allow_unknown,
-                                   unknown_penalty=self.unknown_pen)
+                                   unknown_penalty=self.unknown_pen, smooth=bool(g('smooth_path')),
+                                   smooth_iterations=int(g('smooth_iterations')),
+                                   sample_step=float(g('sample_step')))
+        self.follower = PurePursuit(
+            max_linear=self.max_lin, min_linear=self.min_lin, max_angular=self.max_ang,
+            k_angular=self.k_ang, lookahead_min=float(g('lookahead_min')),
+            lookahead_gain=float(g('lookahead_gain')), lookahead_max=float(g('lookahead_max')),
+            turn_in_place_angle=self.turn_in_place, turn_resume_angle=float(g('turn_resume_angle')),
+            max_linear_accel=float(g('max_linear_accel')),
+            max_angular_accel=float(g('max_angular_accel')),
+            curvature_slowdown=float(g('curvature_slowdown')),
+            control_rate=float(g('control_rate')))
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -297,21 +317,6 @@ class Explore(Node):
             % (gx, gy, L, math.hypot(gx - pose[0], gy - pose[1]), len(avaliadas), self.frontiers))
         return True
 
-    def ponto_perseguido(self, pose):
-        """Ponto do caminho a `lookahead` à frente; descarta o que já ficou para trás."""
-        if not self.path:
-            return None
-        d = [math.hypot(x - pose[0], y - pose[1]) for x, y in self.path]
-        i0 = int(np.argmin(d))
-        self.path = self.path[i0:]
-        acc = 0.0
-        for i in range(1, len(self.path)):
-            acc += math.hypot(self.path[i][0] - self.path[i - 1][0],
-                              self.path[i][1] - self.path[i - 1][1])
-            if acc >= self.lookahead:
-                return self.path[i]
-        return self.path[-1]
-
     def control(self):
         if self.state in (IDLE, ABORTED, DONE):
             return
@@ -345,6 +350,7 @@ class Explore(Node):
             self.get_logger().info('destino alcançado (%d) | %.1f m2 mapeados'
                                    % (self.goals_done, self.explored_m2))
             self.goal, self.path = None, []
+            self.follower.reset()
             self.send(0.0, 0.0)
             return
 
@@ -371,27 +377,23 @@ class Explore(Node):
                 self.goal = None
                 return
 
-        alvo = self.ponto_perseguido(pose)
+        alvo, self.path = self.follower.ponto(pose, self.path)
         if alvo is None:
             self.goal = None
             return
-        erro = wrap(math.atan2(alvo[1] - pose[1], alvo[0] - pose[0]) - pose[2])
         d_front = self.front_distance()
 
         if d_front < self.obs_stop:
             # o mapa não conhecia: para e gira para o lado do caminho
             self.state, self.reason = BLOCKED, 'obstáculo a %.2f m' % d_front
-            self.send(0.0, math.copysign(self.max_ang * 0.5, erro if erro else 1.0))
+            erro = wrap(math.atan2(alvo[1] - pose[1], alvo[0] - pose[0]) - pose[2])
+            self.send(*self.follower.rampa(0.0, math.copysign(self.max_ang * 0.5,
+                                                              erro if erro else 1.0)))
             return
 
-        w = max(-self.max_ang, min(self.max_ang, self.k_ang * erro))
-        if abs(erro) > self.turn_in_place:
-            v = 0.0
-        else:
-            v = self.max_lin * max(0.0, 1.0 - abs(erro) / self.turn_in_place)
-            if d_front < self.obs_slow:
-                v *= max(0.0, (d_front - self.obs_stop) / (self.obs_slow - self.obs_stop))
-            v = max(self.min_lin, min(self.max_lin, v)) if v > 0 else 0.0
+        escala = (1.0 if d_front >= self.obs_slow
+                  else max(0.0, (d_front - self.obs_stop) / (self.obs_slow - self.obs_stop)))
+        v, w, self.path = self.follower.comando(pose, self.path, escala=escala)
         self.state, self.reason = EXPLORING, ''
         self.send(v, w)
 
@@ -414,12 +416,14 @@ class Explore(Node):
         if self.state in (EXPLORING, BLOCKED):
             self.state, self.reason = PAUSED, why
             self.get_logger().warn('exploração PAUSADA: %s' % why)
+        self.follower.reset()
         self.send(0.0, 0.0)
 
     def stop(self, why):
         if self.state not in (IDLE, ABORTED):
             self.get_logger().warn('exploração ABORTADA: %s' % why)
         self.state, self.reason = ABORTED, why
+        self.follower.reset()
         self.send(0.0, 0.0)
 
     def srv_start(self, req, res):
@@ -445,6 +449,8 @@ class Explore(Node):
             'goal': [round(self.goal[0], 2), round(self.goal[1], 2)] if self.goal else None,
             'goal_distance_m': round(dist, 2) if dist is not None else None,
             'path_points': len(self.path),
+            'lookahead_m': round(self.follower.ld, 2),
+            'cmd': [round(self.follower.v, 2), round(self.follower.w, 2)],
             'frontiers': self.frontiers, 'goals_done': self.goals_done,
             'blacklisted': len(self.blacklist), 'plan_fails': self.plan_fails,
             'explored_m2': round(self.explored_m2, 1),

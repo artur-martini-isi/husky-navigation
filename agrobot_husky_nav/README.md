@@ -308,10 +308,12 @@ de melhor relação entre tamanho e proximidade (`tamanho / (1 + d²)`). Quando 
 fronteira, o estado vai para `DONE`: o mapa fechou.
 
 **Como se move**: planejamento A* sobre o próprio mapa (`grid_planner.py`), seguido por
-perseguição de ponto à frente. A primeira versão era reativa (rumo ao destino somado à repulsão do
-scan) e **ficou presa contra uma parede** no laboratório, oscilando: repulsão local não contorna
-obstáculo côncavo. O A* entrega um caminho que já passa longe das paredes, replanejado a cada
-`replan_period`. O scan continua como última barreira, para o que o mapa ainda não viu.
+perseguição de ponto à frente (`path_follow.py`). A primeira versão era reativa (rumo ao destino
+somado à repulsão do scan) e **ficou presa contra uma parede** no laboratório, oscilando: repulsão
+local não contorna obstáculo côncavo. O A* entrega um caminho que já passa longe das paredes,
+replanejado a cada `replan_period`. O scan continua como última barreira, para o que o mapa ainda
+não viu. Suavização do caminho e controle por curvatura: ver a seção sobre `grid_planner.py` e
+`path_follow.py` abaixo.
 
 **Como escolhe entre fronteiras**: pelo **caminho real**, não pela distância em linha reta. Medido
 no laboratório: a fronteira a 9,3 m em linha reta exigia 45,7 m de caminho (estava atrás de uma
@@ -383,3 +385,47 @@ explícito.
 percorrido em ~62 s a 0,3 m/s, incluindo passagem por vão estreito (obstáculo frontal a 0,60 m) sem
 travar, seguindo direto para o marcador seguinte da fila. Planejamento em 4-7 ms sobre um mapa de
 534x1083 células.
+
+## Suavidade do movimento (`grid_planner.py` + `path_follow.py`)
+
+Na primeira corrida o robô chegava aos marcadores, mas **serpenteava** o caminho inteiro. Duas
+causas, uma no caminho e outra no controle.
+
+**O caminho era uma escada.** Numa grade de 10 cm com 8 vizinhos, o A* só sabe andar em múltiplos
+de 45 graus: um corredor diagonal vira degrau-degrau-degrau. Seguir isso é seguir um zigue-zague.
+Agora o caminho passa por três etapas antes de sair do planejador:
+
+1. **encurtamento por visada livre** — pontos que se enxergam viram um trecho reto (Bresenham sobre
+   a grade de proibição). Uma escada de sete células vira dois pontos;
+2. **arredondamento de quina** (Chaikin, `smooth_iterations`) — ponto que cairia em célula proibida
+   é descartado, melhor um canto vivo do que raspar a parede;
+3. **reamostragem uniforme** (`sample_step`) — a perseguição mede distância ao longo do caminho, e
+   trecho desigual faria o ponto perseguido saltar.
+
+O encurtamento nunca aproxima o caminho mais da parede do que o A* já havia aceitado: a visada só
+vale se o custo máximo ao longo dela não passar do custo máximo do trecho original. Sem essa
+condição a suavização comeria a folga de segurança.
+
+Medido sobre o mapa do laboratório, num destino a 4 m: **107 graus de mudança de rumo por metro no
+caminho cru, 2,3 graus por metro no suavizado**, com o comprimento caindo de 4,2 para 4,0 m e o
+planejamento ainda em 6 ms.
+
+**O controle caçava o rumo.** O comando angular era `w = k · erro_de_rumo`, que zera só quando o
+robô aponta exatamente para o ponto perseguido — então ele passa do ponto, corrige para o outro
+lado e repete. Pure pursuit de verdade é geométrico: existe um arco que sai da pose atual e chega
+no ponto perseguido, de curvatura `κ = 2·sen(α)/L`, e basta comandar `w = v·κ`. O robô entra na
+curva em vez de caçá-la. Três ajustes completam:
+
+* **distância adaptativa**: `lookahead_min + lookahead_gain · v`, limitada por `lookahead_max`.
+  Parado o ponto é próximo (preciso), andando ele se afasta (suave);
+* **rampa**: `max_linear_accel` e `max_angular_accel` limitam a variação por ciclo, porque degrau de
+  velocidade vira solavanco e escorrega a roda. A rampa é zerada em toda parada, pausa ou abortagem;
+* **histerese no giro parado**: entra acima de `turn_in_place_angle` (0,7 rad), só sai abaixo de
+  `turn_resume_angle` (0,25 rad). Sem isso o robô alterna entre girar e andar bem na fronteira.
+
+Em simulação, seguindo o mesmo caminho em escada, o desvio padrão do comando angular cai de 0,107
+para 0,054 rad/s só pelo controle, e para **0,012 rad/s** com o caminho suavizado — as trocas de
+sinal do comando caem de 102 para 10. O caminho é a causa dominante; o controle, a segunda.
+
+O estado publicado em `~/status` traz `cmd` (v e w efetivamente comandados), `lookahead_m` e
+`turning_in_place`, que é o que se olha quando o movimento não parecer suave.

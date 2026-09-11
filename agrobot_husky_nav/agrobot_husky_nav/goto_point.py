@@ -41,6 +41,7 @@ from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 from agrobot_husky_nav.grid_planner import GridPlanner
+from agrobot_husky_nav.path_follow import PurePursuit
 
 IDLE, RUNNING, BLOCKED, PAUSED, ARRIVED, ABORTED = (
     'IDLE', 'RUNNING', 'BLOCKED', 'PAUSED', 'ARRIVED', 'ABORTED')
@@ -72,21 +73,30 @@ class GotoPoint(Node):
         p('plan_resolution', 0.10)
         p('allow_unknown', False)                # indoor com mapa pronto: não atravessa o desconhecido
         p('unknown_penalty', 4.0)
-        p('replan_period', 1.5)
+        p('replan_period', 2.0)
         p('plan_fail_limit', 5)                  # tentativas antes de desistir do marcador
+        p('smooth_path', True)                   # tira a escada de 45 graus do A*
+        p('smooth_iterations', 2)
+        p('sample_step', 0.15)
         # chegada
         p('goal_tolerance', 0.35)
         p('align_final_yaw', True)               # gira no lugar para o rumo do marcador, se houver
         p('yaw_tolerance', 0.15)
         p('goal_timeout', 180.0)
         p('hold_time', 1.0)                      # parado sobre o waypoint antes de seguir
-        # seguimento
-        p('lookahead', 0.6)
+        # seguimento (pure pursuit por curvatura, ver path_follow.py)
+        p('lookahead_min', 0.5)                  # ponto perseguido parado
+        p('lookahead_gain', 1.2)                 # ... e quanto ele se afasta por m/s
+        p('lookahead_max', 1.2)
         p('max_linear', 0.3)
         p('min_linear', 0.08)
         p('max_angular', 0.7)
         p('k_angular', 1.3)
         p('turn_in_place_angle', 0.7)
+        p('turn_resume_angle', 0.25)             # histerese: entra em 0,7 rad, sai em 0,25
+        p('max_linear_accel', 0.4)               # rampa: degrau de velocidade vira solavanco
+        p('max_angular_accel', 1.5)
+        p('curvature_slowdown', 1.2)             # curva fechada, mais devagar
         p('control_rate', 10.0)
         # segurança
         p('obstacle_stop_distance', 0.6)
@@ -108,16 +118,28 @@ class GotoPoint(Node):
                                    clearance_margin=float(g('clearance_margin')),
                                    plan_resolution=float(g('plan_resolution')),
                                    allow_unknown=bool(g('allow_unknown')),
-                                   unknown_penalty=float(g('unknown_penalty')))
+                                   unknown_penalty=float(g('unknown_penalty')),
+                                   smooth=bool(g('smooth_path')),
+                                   smooth_iterations=int(g('smooth_iterations')),
+                                   sample_step=float(g('sample_step')))
+        self.follower = PurePursuit(
+            max_linear=float(g('max_linear')), min_linear=float(g('min_linear')),
+            max_angular=float(g('max_angular')), k_angular=float(g('k_angular')),
+            lookahead_min=float(g('lookahead_min')), lookahead_gain=float(g('lookahead_gain')),
+            lookahead_max=float(g('lookahead_max')),
+            turn_in_place_angle=float(g('turn_in_place_angle')),
+            turn_resume_angle=float(g('turn_resume_angle')),
+            max_linear_accel=float(g('max_linear_accel')),
+            max_angular_accel=float(g('max_angular_accel')),
+            curvature_slowdown=float(g('curvature_slowdown')),
+            control_rate=float(g('control_rate')))
         self.replan_period = float(g('replan_period'))
         self.plan_fail_limit = int(g('plan_fail_limit'))
         self.goal_tol = float(g('goal_tolerance'))
         self.align_yaw, self.yaw_tol = bool(g('align_final_yaw')), float(g('yaw_tolerance'))
         self.goal_timeout, self.hold_time = float(g('goal_timeout')), float(g('hold_time'))
-        self.lookahead = float(g('lookahead'))
         self.max_lin, self.min_lin = float(g('max_linear')), float(g('min_linear'))
         self.max_ang, self.k_ang = float(g('max_angular')), float(g('k_angular'))
-        self.turn_in_place = float(g('turn_in_place_angle'))
         self.obs_stop, self.obs_slow = float(g('obstacle_stop_distance')), float(g('obstacle_slow_distance'))
         self.obs_half = math.radians(float(g('obstacle_half_angle_deg')))
         self.blocked_timeout = float(g('blocked_timeout'))
@@ -354,19 +376,6 @@ class GotoPoint(Node):
         return None
 
     # ------------------------------------------------------------------ controle
-    def ponto_perseguido(self, pose):
-        if not self.path:
-            return None
-        d = [math.hypot(x - pose[0], y - pose[1]) for x, y in self.path]
-        self.path = self.path[int(np.argmin(d)):]
-        acc = 0.0
-        for i in range(1, len(self.path)):
-            acc += math.hypot(self.path[i][0] - self.path[i - 1][0],
-                              self.path[i][1] - self.path[i - 1][1])
-            if acc >= self.lookahead:
-                return self.path[i]
-        return self.path[-1]
-
     def descarta_atual(self, porque):
         x, y = self.fila[0][0], self.fila[0][1]
         self.fila.pop(0)
@@ -375,6 +384,7 @@ class GotoPoint(Node):
         self.goal_time = self.now()
         self.ultimo_erro = '%s: marcador (%.2f, %.2f) descartado' % (porque, x, y)
         self.get_logger().warn(self.ultimo_erro)
+        self.follower.reset()
         self.send(0.0, 0.0)
         self.publish_markers()
 
@@ -385,6 +395,7 @@ class GotoPoint(Node):
         self.path, self.progress_ref, self.plan_fails, self.alinhando = [], None, 0, False
         self.goal_time = self.now()
         self.hold_until = self.now() + self.hold_time
+        self.follower.reset()
         self.send(0.0, 0.0)
         self.publish_markers()
         if self.fila:
@@ -459,11 +470,10 @@ class GotoPoint(Node):
                     self.send(0.0, 0.0)
                     return
 
-        alvo = self.ponto_perseguido(pose)
+        alvo, self.path = self.follower.ponto(pose, self.path)
         if alvo is None:
             self.path = []
             return
-        erro = wrap(math.atan2(alvo[1] - pose[1], alvo[0] - pose[0]) - pose[2])
         d_front = self.front_distance()
 
         if d_front < self.obs_stop:
@@ -475,18 +485,15 @@ class GotoPoint(Node):
                 self.descarta_atual('bloqueado por %.0f s' % (t - self.blocked_since))
                 return
             self.last_plan = 0.0
-            self.send(0.0, math.copysign(self.max_ang * 0.5, erro if erro else 1.0))
+            erro = wrap(math.atan2(alvo[1] - pose[1], alvo[0] - pose[0]) - pose[2])
+            self.send(*self.follower.rampa(0.0, math.copysign(self.max_ang * 0.5,
+                                                              erro if erro else 1.0)))
             return
 
-        w = max(-self.max_ang, min(self.max_ang, self.k_ang * erro))
-        if abs(erro) > self.turn_in_place:
-            v = 0.0
-        else:
-            v = self.max_lin * max(0.0, 1.0 - abs(erro) / self.turn_in_place)
-            if d_front < self.obs_slow:
-                v *= max(0.0, (d_front - self.obs_stop) / (self.obs_slow - self.obs_stop))
-            v = max(self.min_lin, min(self.max_lin, v)) if v > 0 else 0.0
-            v = min(v, max(self.min_lin, dist))          # desacelera na chegada
+        # o scan só modula a velocidade; a geometria da curva é do seguidor
+        escala = (1.0 if d_front >= self.obs_slow
+                  else max(0.0, (d_front - self.obs_stop) / (self.obs_slow - self.obs_stop)))
+        v, w, self.path = self.follower.comando(pose, self.path, dist_goal=dist, escala=escala)
         self.state, self.reason = RUNNING, ''
         self.send(v, w)
 
@@ -506,6 +513,7 @@ class GotoPoint(Node):
         if self.state in (RUNNING, BLOCKED):
             self.state, self.reason = PAUSED, why
             self.get_logger().warn('ir-até-marcador PAUSADO: %s' % why)
+        self.follower.reset()
         self.send(0.0, 0.0)
 
     def stop(self, why):
@@ -513,6 +521,7 @@ class GotoPoint(Node):
             self.get_logger().warn('ir-até-marcador ABORTADO: %s' % why)
         self.state, self.reason = ABORTED, why
         self.path = []
+        self.follower.reset()
         self.send(0.0, 0.0)
 
     def srv_start(self, req, res):
@@ -560,6 +569,9 @@ class GotoPoint(Node):
             'queue': len(self.fila),
             'queue_points': [[round(q[0], 2), round(q[1], 2)] for q in self.fila[:10]],
             'path_points': len(self.path),
+            'lookahead_m': round(self.follower.ld, 2),
+            'cmd': [round(self.follower.v, 2), round(self.follower.w, 2)],
+            'turning_in_place': self.follower.girando,
             'path_length_m': round(GridPlanner.comprimento(self.path), 1) if len(self.path) > 1 else 0.0,
             'received': self.recebidos, 'reached': self.alcancados, 'dropped': self.descartados,
             'plan_fails': self.plan_fails,

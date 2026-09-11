@@ -144,6 +144,22 @@ para arquitetura e operação, `agrobot_husky_nav/README.md` para o pacote.
   o caminho do executável, e o resumo do script conta os processos de `explore` e `goto_point`.
   Verificação de campo: `ros2 topic info /a300_00096/cmd_vel` tem que mostrar **um** publicador.
 
+### 2026-09-11 — suavidade do movimento
+- O robô chegava aos marcadores mas **serpenteava**. Duas causas independentes.
+- Caminho: o A* numa grade de 10 cm com 8 vizinhos só anda em múltiplos de 45 graus, então o
+  caminho era uma escada. Agora passa por encurtamento por visada livre, arredondamento de quina
+  (Chaikin) e reamostragem uniforme, dentro do `grid_planner.py`. A visada só encurta se não
+  aproximar da parede mais do que o A* já aceitara, para não comer a folga de segurança.
+  Medido no mapa do laboratório, destino a 4 m: 107 graus/m de mudança de rumo no caminho cru
+  contra 2,3 graus/m no suavizado, com o comprimento caindo de 4,2 para 4,0 m.
+- Controle: `w = k · erro_de_rumo` zera só quando o robô aponta exato para o alvo, então ele passa e
+  corrige em ciclo. Trocado por pure pursuit geométrico (`w = v·κ`, `κ = 2·sen(α)/L`) em
+  `path_follow.py`, com distância de perseguição adaptativa à velocidade, rampa de aceleração e
+  histerese no giro parado. Em simulação sobre o mesmo caminho em escada, o desvio padrão do
+  comando angular cai de 0,107 para 0,012 rad/s e as trocas de sinal de 102 para 10.
+- Os dois nós de movimento autônomo (`goto_point` e `explore`) usam o mesmo planejador e o mesmo
+  seguidor, para não divergirem.
+
 ## Próximos passos
 1. **Botão Options do joystick**: o índice 9 não inicia (o controle expõe 15 botões; Círculo=1, L1=4,
    R1=5 confirmados). Levantar o índice correto com `ros2 topic echo /a300_00096/joy_teleop/joy` e

@@ -14,18 +14,28 @@
       goal_tolerance: 0.7
       goal_timeout: 60.0          # troca de destino se não chegar nesse tempo
       replan_period: 2.0          # replaneja o caminho enquanto anda
+      smooth_path: true           # caminho cru do A* é escada de 45 graus; isto o endireita
+      smooth_iterations: 2        # arredondamento de quina (Chaikin)
+      sample_step: 0.15           # reamostragem uniforme, em metros
       max_goal_distance: 30.0     # em linha reta; quem decide de verdade é o caminho do A*
       blacklist_time: 90.0        # destino sem caminho fica descartado por este tempo
       max_candidates: 6           # planeja para as N melhores e escolhe pelo caminho mais curto
       allow_unknown: true         # pode planejar por área desconhecida, com penalidade
       unknown_penalty: 2.5
-      lookahead: 0.8              # ponto perseguido à frente, sobre o caminho
+      # Perseguição por curvatura (path_follow.py), igual ao goto_point: w = v·κ.
+      lookahead_min: 0.5
+      lookahead_gain: 1.2
+      lookahead_max: 1.2
 
       max_linear: 0.3             # indoor: devagar
       min_linear: 0.08
       max_angular: 0.7
-      k_angular: 1.3
+      k_angular: 1.3              # usado só no giro parado
       turn_in_place_angle: 0.7    # acima de ~40 graus, gira parado antes de avançar
+      turn_resume_angle: 0.25     # histerese: só volta a andar abaixo disso
+      max_linear_accel: 0.4       # rampa de aceleração
+      max_angular_accel: 1.5
+      curvature_slowdown: 1.2
       control_rate: 10.0
 
       # A repulsão reativa saiu: quem contorna obstáculo agora é o A*. O scan ficou como
