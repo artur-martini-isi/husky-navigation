@@ -1,7 +1,26 @@
 # agrobot_husky_nav
 
-Stack leve de navegação por waypoints GNSS para o Husky A300, sem Nav2 e sem mapa.
-Validada em campo em 2026-09-09 (reto 5 m; quadrado de 5 m a 0,5 e 1,0 m/s).
+Stack leve de navegação do Husky A300, **sem Nav2**, em dois modos: **outdoor** por waypoints GNSS
+RTK, sem mapa (validado em campo em 2026-09-09), e **indoor** sobre o mapa do SLAM, com planejamento
+A* (validado no laboratório em 2026-09-11). O `../README.md` explica os dois modos, a diferença entre
+eles e o modo híbrido planejado; aqui está o uso do pacote.
+
+Onde procurar cada coisa:
+
+| Assunto | Modo | Seção |
+|---|---|---|
+| Seguidor de waypoints, missões, fontes de pose | outdoor | *Nós e tópicos*, *Launches*, *Missões* |
+| Correções RTK pelo ROS 2 (NTRIP) | outdoor | *Correções RTK via ROS 2* |
+| Mapa global 2D e como salvá-lo | indoor | *Mapeamento global 2D* |
+| Ir até um marcador clicado no mapa | indoor | *Ir até um marcador no mapa* |
+| Exploração autônoma por fronteiras | indoor | *Exploração autônoma por fronteiras* |
+| Planejador A*, suavização e seguimento | indoor | *Suavidade do movimento* |
+| Mapa local voxelizado, follow-me, ZED estéreo | indoor | seções próprias |
+| Telemetria para o sistema Agrobot | ambos | *Telemetria para o sistema Agrobot* |
+
+**Vale nos dois modos**: só um nó pode publicar em `cmd_vel` por vez. `gps_waypoint_follower`,
+`goto_point`, `explore` e `follow_me` disputam o mesmo tópico; `~/nav_kill.sh nav|goto|explore|follow|all`
+encerra o que não for usar, e `ros2 topic info /a300_00096/cmd_vel` confirma que sobrou um.
 
 ## Nós e tópicos (namespace `a300_00096`)
 
@@ -13,6 +32,7 @@ Validada em campo em 2026-09-09 (reto 5 m; quadrado de 5 m a 0,5 e 1,0 m/s).
 | `agrobot_bridge` | pose das 2 antenas, `platform/bms/state`, `platform/odom/filtered`, `gps_waypoint_follower/status` | **AMQP direto** para o RabbitMQ do sistema Agrobot: filas `agent_telemetry` (1 s), `agent_keep_alive` (10 s), `agent_details` (20 s) |
 | `follow_me` | `zed/left/image_raw` + `camera_info`, `scan`, `joy_teleop/joy` | `cmd_vel`, `follow_me/status` (JSON), `follow_me/debug_image`; serviços `start`/`pause`/`stop` |
 | `explore` | `map` (SLAM), `scan`, TF `map→base_link`, `joy_teleop/joy` | `cmd_vel`, `explore/status` (JSON); serviços `start`/`pause`/`stop` |
+| `goto_point` | `map` (SLAM), `scan`, TF `map→base_link`, `joy_teleop/joy`, marcadores (`goal_pose`, `clicked_point`, `~/set_goal`) | `cmd_vel`, `goto_point/status` (JSON), `goto_point/path`, `goto_point/markers`; serviços `start`/`pause`/`stop`/`clear`/`skip` |
 | `slam_toolbox` | `scan`, TF `odom→base_link` | frame **`map`**, transformada `map→odom` e `map` (OccupancyGrid global) |
 | `voxel_local_map` | `/livox/lidar`, `platform/odom/filtered` | `voxel_cloud` (PointCloud2 voxelizada) e `local_map` (OccupancyGrid, janela rolante 20x20 m) |
 | `zed_stereo` | `/dev/video0` (ZED 2i como UVC, quadro lado a lado) | `zed/{left,right}/image_raw`, `.../compressed`, `.../camera_info`; serviço `zed/save` grava o par em PNG |

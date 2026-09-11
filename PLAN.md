@@ -166,18 +166,23 @@ para arquitetura e operação, `agrobot_husky_nav/README.md` para o pacote.
   lateral era corrigido devagar demais.
 
 ## Próximos passos
-1. **Botão Options do joystick**: o índice 9 não inicia (o controle expõe 15 botões; Círculo=1, L1=4,
+1. **Modo híbrido indoor/outdoor** (ver o README): georreferenciar o mapa do SLAM com a lat/lon e o
+   rumo da origem, unificar a árvore de TF em `earth → map → odom → base_link` trocando apenas quem
+   publica `map→odom`, criar um supervisor dono do `cmd_vel`, definir o critério de transição com
+   histerese e um formato de missão em que cada waypoint declara o seu frame.
+2. **Botão Options do joystick**: o índice 9 não inicia (o controle expõe 15 botões; Círculo=1, L1=4,
    R1=5 confirmados). Levantar o índice correto com `ros2 topic echo /a300_00096/joy_teleop/joy` e
    corrigir `joy_start_button` em `explore.yaml` e `goto_point.yaml`.
-2. **Serviço systemd** (ou `platform.extras.launch`) para Livox + `bringup.launch.py` subirem com o robô, sem missão.
-2. **Internet em campo sem laptop**: modem 4G no roteador ou no robô; então `ntrip.launch.py` direto no caster.
-3. **Calibrar a câmera do Fixposition** e voltar a `pose_source: fusion` (rumo e pose mesmo sem RTK fixed;
+3. **Serviço systemd** (ou `platform.extras.launch`) para Livox + `bringup.launch.py` subirem com o robô, sem missão.
+4. **Internet em campo sem laptop**: modem 4G no roteador ou no robô; então `ntrip.launch.py` direto no caster.
+5. **Calibrar a câmera do Fixposition** e voltar a `pose_source: fusion` (rumo e pose mesmo sem RTK fixed;
    tolera perda de correção). Precisa da fusão iniciando na API (`ctrl/action {"fusion":"start"}`).
-4. **Trajeto de fileiras** (ida e volta paralelas de 20 m) e teste do `obstacle_steer` (desvio lateral).
-5. **Rosbag** por corrida (`gps_*/fix`, `gnsscorr`, `scan`, `cmd_vel`, `joy`, `status`) para análise.
-6. Confirmar na UI (http://10.0.0.96:8090) se o Husky aparece no mapa; se a telemetria não vincular ao
-   card do agente, acertar `agent_source` no `agrobot_bridge.yaml` para o id que a camada de serviços espera.
-7. Consumir `activity_dispatch`/`activity_abort` na ponte e publicar `activity_status` (missão vinda do sistema).
-8. Integração com o PLAAC (`agrobot-physical-layer`): expor `load_mission`/`start`/`stop` como skill de missão.
-7. Curvas suaves (raio mínimo) em vez de giro parado, se a aplicação pedir.
-8. Cabo do laptop: adaptador USB-ethernet sem link em 2026-09-08 (trocar); laptop precisa de IP estático em `192.168.131.x`.
+6. **Trajeto de fileiras** (ida e volta paralelas de 20 m) e teste do `obstacle_steer` (desvio lateral).
+7. **Rosbag** por corrida (`gps_*/fix`, `gnsscorr`, `scan`, `cmd_vel`, `joy`, `status`) para análise.
+8. Consumir `activity_dispatch`/`activity_abort` na ponte e publicar `activity_status` (missão vinda do sistema).
+9. Integração com o PLAAC (`agrobot-physical-layer`): expor `load_mission`/`start`/`stop`, e agora também
+   os marcadores do `goto_point`, como skills de missão (detalhes em `proximos_passos_plaac.md`).
+10. Curvas suaves com raio mínimo em vez de giro parado, se a aplicação pedir. O seguidor já comanda por
+    curvatura, então falta só limitar `κ` e tratar o caso em que o destino fica atrás do robô.
+11. Cabo do laptop: adaptador USB-ethernet sem link em 2026-09-08 (trocar); laptop precisa de IP estático
+    em `192.168.131.x`.
