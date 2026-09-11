@@ -1,0 +1,30 @@
+# gravado por record_waypoints.py em 2026-09-09T17:40:28
+# fonte de pose: dual_gnss (Fixposition, ponto médio das antenas; rumo pela baseline)
+# heading_deg é referência do momento da gravação; o seguidor ignora esse campo
+waypoints:
+  gps_points:
+    - latitude: -29.79737997
+      longitude: -51.15068697
+      tolerance: 0.60
+      heading_deg: -14.5
+      # gravado 2026-09-09T17:39:54, fix [8, 8]
+    - latitude: -29.79736894
+      longitude: -51.15061234
+      tolerance: 0.60
+      heading_deg: 0.9
+      # gravado 2026-09-09T17:40:01, fix [8, 8]
+    - latitude: -29.79741534
+      longitude: -51.15062091
+      tolerance: 0.60
+      heading_deg: -150.6
+      # gravado 2026-09-09T17:40:10, fix [8, 8]
+    - latitude: -29.79746097
+      longitude: -51.15058084
+      tolerance: 0.60
+      heading_deg: -45.4
+      # gravado 2026-09-09T17:40:18, fix [8, 8]
+    - latitude: -29.79747999
+      longitude: -51.15066329
+      tolerance: 0.60
+      heading_deg: 161.0
+      # gravado 2026-09-09T17:40:28, fix [8, 8]

@@ -30,6 +30,13 @@ platform:
       type: a300.top_plate
   mcu:
     protocol: proton
+  extras:
+    ros_parameters:
+      foxglove_bridge:
+        # O gerador da Clearpath serializa listas com repr() e dobra as barras invertidas,
+        # o que quebrava o padrao original e fazia a ponte recusar TODAS as malhas.
+        # Este padrao evita barras invertidas: [A-Za-z0-9_%-] no lugar de \w e [.] no lugar de \.
+        asset_uri_allowlist: ["^package://(?:[A-Za-z0-9_%-]+/)*[A-Za-z0-9_%-]+[.](?:dae|fbx|glb|gltf|jpeg|jpg|mtl|obj|png|stl|tif|tiff|urdf|webp|xacro)$"]
 links:
   mesh:
     - name: sensor_arch

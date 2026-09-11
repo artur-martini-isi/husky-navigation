@@ -1,0 +1,15 @@
+package://clearpath_platform_description/meshes/a300/attachments/bumper_collision.stl
+package://clearpath_platform_description/meshes/a300/attachments/bumper.dae
+package://clearpath_platform_description/meshes/a300/attachments/top_plate.dae
+package://clearpath_platform_description/meshes/a300/chassis_collision.stl
+package://clearpath_platform_description/meshes/a300/chassis.dae
+package://clearpath_platform_description/meshes/a300/drivetrain/motor.stl
+package://clearpath_platform_description/meshes/a300/drivetrain/suspension_beam.stl
+package://clearpath_platform_description/meshes/a300/drivetrain/suspension_spacer.stl
+package://clearpath_platform_description/meshes/a300/drivetrain/wheels/outdoor_left.stl
+package://clearpath_platform_description/meshes/a300/drivetrain/wheels/outdoor_right.stl
+package://clearpath_platform_description/meshes/a300/livery.dae
+package://clearpath_platform_description/meshes/a300/status_lights.dae
+package://clearpath_sensors_description/meshes/fixposition.stl
+package://clearpath_sensors_description/meshes/gnss_spherical.stl
+package://senai02_description/meshes/sensor_arch.stl

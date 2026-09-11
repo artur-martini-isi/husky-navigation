@@ -13,8 +13,11 @@ quadrado de 5 m a 0,5 e a 1,0 m/s).
 | `PLAN.md` | Histórico do que foi feito (por data) e próximos passos |
 | `agrobot_husky_nav/` | Pacote ROS 2 da navegação (fonte de verdade; implantado em `~/colcon_ws/src` no robô) |
 | `agrobot_husky_nav/README.md` | Uso do pacote: launches, parâmetros, tópicos, joystick, NTRIP |
-| `tools/` | Scripts. Os que rodam **no laptop**: `deploy.py`, `rssh.py`, `ntrip_tunnel.py`. Os que rodam **no robô** (copiados para `/home/robot/` pelo deploy): `field_up.sh`, `nav_kill.sh`, `fixposition_wired.sh`, `ntrip_tunnel_up.sh`, `make_forward_mission.py`, `make_relative_mission.py`, `heading_check.py` |
-| `missions/` | Missões usadas nos testes de campo (formato do seguidor) |
+| `tools/` | Scripts. Os que rodam **no laptop**: `deploy.py`, `rssh.py`, `ntrip_tunnel.py`. Os que rodam **no robô** (copiados para `/home/robot/` pelo deploy): `field_up.sh`, `nav_kill.sh`, `fixposition_wired.sh`, `ntrip_tunnel_up.sh`, `make_forward_mission.py`, `make_relative_mission.py`, `heading_check.py`, `record_waypoints.py`, `save_map.sh`, `goto.py` |
+| `calib/` | Calibração de fábrica da ZED 2i e o alvo ArUco impresso do follow-me |
+| `missions/` | Missões usadas nos testes de campo (formato do seguidor), incluindo as gravadas com o joystick |
+| `proximos_passos_plaac.md` | Plano de integração com o PLAAC e as camadas de comunicação/serviços |
+| `webui/` | Interface web de teste (posição ao vivo, waypoints por clique, start/pause/stop) |
 | `inventory/` | Cópias de configuração do robô: `robot.yaml`, `ins_0.yaml`, `localization.yaml`, `twist_mux.yaml`, `netplan-50-clearpath-bridge.yaml` (senhas removidas), listas de tópicos |
 | `robot-home/` | Cópia dos scripts do Livox que já existiam no robô (`start_livox_pc2.sh`, `restart_livox.sh`, `decimate.py`, ...) |
 
@@ -27,9 +30,13 @@ e os scripts para o robô e compila. Auditado em 2026-09-10: pacote e scripts id
 |---|---|
 | Hostname / serial | `cpr-a300-00096` / a300-00096 |
 | Usuário / senha | `robot` / `clearpath` (sudo liberado) |
-| Wi-Fi do robô | SSID **Agriwing** (2,4 GHz, para alcance) → `10.0.0.60`. `ssh robot@10.0.0.60`. A `Agriwing_5G` foi removida do netplan do robô em 2026-09-09 (backup `.bak-2026-09-09`) para ele não voltar à 5 GHz |
+| Wi-Fi do robô | **Agriwing_5G** em laboratório, **Agriwing** (2,4 GHz) em campo → `10.0.0.60`. Os dois perfis estão no netplan e o wpa_supplicant escolhe pelo sinal; para forçar 2,4 GHz em campo, remover o bloco `Agriwing_5G`. `ssh robot@10.0.0.60`. A `Agriwing_5G` foi removida do netplan do robô em 2026-09-09 (backup `.bak-2026-09-09`) para ele não voltar à 5 GHz |
 | Rede cabeada do robô | `192.168.131.1/24` (bridge `br0`, sem DHCP). MCU em `.2`, Livox MID360 em `.109`, segundo Livox em `.112`, **Fixposition em `.35`** |
-| Fixposition | `http://192.168.131.35` (web UI e API JSON em `/api/v2/`). Acesso do laptop via túnel: `ssh -L 8080:192.168.131.35:80 robot@10.0.0.60`. O Wi-Fi do sensor (antes `10.0.0.199`) não é mais usado |
+| Fixposition | `http://192.168.131.35` (web UI e API JSON em `/api/v2/`). A conexão cabeada dele
+  (`fp-navvr2-eth0-static-ip`) tinha **autoconnect desligado** e sumia a cada boot; em 2026-09-09 foi
+  ligado por `POST /api/v2/net/conn_set {"connection":"fp-navvr2-eth0-static-ip","auto":true}` e passou
+  a subir sozinho (verificado após reboot). Acesso do laptop via túnel: `ssh -L 8080:192.168.131.35:80 robot@10.0.0.60`. O Wi-Fi do sensor (antes `10.0.0.199`) não é mais usado |
+| Sistema Agrobot | RabbitMQ em `10.0.0.96:5672` (usuário `agrobot`, management em `:15672`, UI do manager em `:8090`). O Husky publica telemetria nele pela ponte `agrobot_bridge` (ver `agrobot_husky_nav/README.md`); o drone aparece como agente `x650-jetson` e o Husky como `husky` |
 | Foxglove | `ws://10.0.0.60:8765`. URDF em `/a300_00096/robot_description` (adicionar como URDF por tópico no painel 3D; frame `base_link`). Nuvem reduzida para Wi-Fi fraco: `/livox/lidar_lite` (`~/run_dec.sh`) |
 | ROS 2 no laptop | Jazzy em `/opt/ros/jazzy`. Para ver o grafo do robô: `ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp ROS_DISCOVERY_SERVER=10.0.0.60:11811 ROS_SUPER_CLIENT=True`, depois `ros2 daemon stop; ros2 topic list --spin-time 8` |
 
@@ -93,14 +100,17 @@ twist_mux ──> plataforma
 4. Subir a navegação sem missão:
    `ros2 launch agrobot_husky_nav nav.launch.py pose_source:=dual_gnss max_linear:=0.5`
    (a 1,0 m/s usar `obstacle_stop_distance:=1.8 obstacle_slow_distance:=4.0`).
-5. Validar o rumo uma vez por montagem: `~/heading_check.py start`, andar 3 m reto com o joystick,
+5. Gravar waypoints dirigindo (opcional): `~/record_waypoints.py /home/robot/m.yaml`; qualquer botão de
+   face do joystick marca um ponto, **Share** desfaz. O log em `/tmp/recorder.log` mostra o índice de cada
+   botão apertado, útil porque o mapeamento muda conforme o driver do controle (neste PS4 a bolinha é o 1).
+6. Validar o rumo uma vez por montagem: `~/heading_check.py start`, andar 3 m reto com o joystick,
    `~/heading_check.py end` (erro deve ser de poucos graus).
-6. Missão: `~/make_relative_mission.py /home/robot/m.yaml "5,0" "5,5" "0,5" "0,0"` (frente,esquerda em m)
+7. Missão: `~/make_relative_mission.py /home/robot/m.yaml "5,0" "5,5" "0,5" "0,0"` (frente,esquerda em m)
    ou `~/make_forward_mission.py 5`; carregar com
    `ros2 topic pub --times 5 -r 1 -w 1 /a300_00096/gps_waypoint_follower/load_mission std_msgs/msg/String "{data: /home/robot/m.yaml}"`.
-7. Conferir `gps_waypoint_follower/status` (`health: null`, distância e erro de rumo coerentes) e iniciar com
+8. Conferir `gps_waypoint_follower/status` (`health: null`, distância e erro de rumo coerentes) e iniciar com
    **Options** no joystick ou `ros2 service call /a300_00096/gps_waypoint_follower/start std_srvs/srv/Trigger`.
-8. Parar tudo: `~/nav_kill.sh all` (nunca usar `pkill -f` com o texto do launch no mesmo comando: mata o próprio shell).
+9. Parar tudo: `~/nav_kill.sh all` (nunca usar `pkill -f` com o texto do launch no mesmo comando: mata o próprio shell).
 
 Resultados de campo (2026-09-09): 5 m reto a 0,3 m/s em 18 s (0,58 m do ponto); quadrado 5 m a 0,5 m/s em
 68 s; a 1,0 m/s em 48 s; chegada sempre a ~0,57 m (tolerância 0,6 m); guarda de obstáculos bloqueou e
@@ -111,8 +121,9 @@ retomou sozinha nas duas corridas do quadrado.
 - **Fusão do Fixposition parada**: a câmera não está calibrada e a fusão dá erro; decisão de não usar por ora.
   `fusion autostart` ficou habilitado na API mas o start falha (`request fail`). Consequência: só o modo
   `dual_gnss`, que exige RTK. Calibrar a câmera devolve rumo e pose mesmo sem RTK fixed.
-- **Rede do sensor**: em 2026-09-09 ele apareceu sem IP no cabo; o IP estático `192.168.131.35/24` foi fixado
-  pela interface do sensor. Se sumir de novo, `ip neigh`/`tcpdump -i br0` no robô mostram se ele fala algo.
+- **Rede do sensor**: resolvido em 2026-09-09 ligando o autoconnect da conexão cabeada pela API (ver acima).
+  Se sumir de novo: `curl http://10.0.0.199/api/v2/net/status` pelo Wi-Fi do sensor, ou `ip neigh`/`tcpdump -i br0`
+  no robô para ver se ele fala alguma coisa no cabo.
 - **Livox e NTRIP não são serviços**: precisam do `field_up.sh` após cada boot (pendência: systemd).
 - **`restart_livox.sh` pode deixar instâncias duplicadas** do driver (as portas UDP entram em conflito e a nuvem para).
   `nav_kill.sh livox` limpa.

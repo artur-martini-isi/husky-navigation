@@ -1,0 +1,33 @@
+# missao: ponto de partida -> 1 -> 2 -> 3 -> 4 -> 5 -> ponto de partida
+# pontos 1..5 gravados com o joystick em 2026-09-09 (mission_gravada_5pts_2026-09-09.yaml)
+# partida capturada na posicao do robo no inicio desta missao
+waypoints:
+  gps_points:
+    - latitude: -29.79734060
+      longitude: -51.15099144
+      tolerance: 0.60
+      # partida
+    - latitude: -29.79737997
+      longitude: -51.15068697
+      tolerance: 0.60
+      # ponto 1
+    - latitude: -29.79736894
+      longitude: -51.15061234
+      tolerance: 0.60
+      # ponto 2
+    - latitude: -29.79741534
+      longitude: -51.15062091
+      tolerance: 0.60
+      # ponto 3
+    - latitude: -29.79746097
+      longitude: -51.15058084
+      tolerance: 0.60
+      # ponto 4
+    - latitude: -29.79747999
+      longitude: -51.15066329
+      tolerance: 0.60
+      # ponto 5
+    - latitude: -29.79734060
+      longitude: -51.15099144
+      tolerance: 0.60
+      # retorno a partida

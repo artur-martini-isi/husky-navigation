@@ -1,0 +1,38 @@
+# Mapa local voxelizado do MID360 para navegação indoor.
+# Alturas em base_link (z=0 na altura do eixo; o chão fica em z ~= -0.165 m).
+/**:
+  voxel_local_map:
+    ros__parameters:
+      odom_topic: 'platform/odom/filtered'
+      map_frame: 'odom'
+      base_frame: 'base_link'
+      voxel_size: 0.10          # aresta do voxel (m)
+      accumulate_s: 0.6         # janela acumulada; o MID360 é não repetitivo e precisa somar quadros
+      min_range: 0.6            # abaixo disso é a estrutura do próprio robô
+      max_range: 12.0
+      obstacle_min_height: 0.15  # altura acima do plano de chão ajustado
+      obstacle_max_height: 1.80  # acima disso é teto/luminária
+      ground_max_height: 0.08    # até aqui conta como chão -> célula livre
+      self_filter_x: [-0.62, 0.62]   # caixa do corpo do A300 (o lidar olha para baixo e se enxerga)
+      self_filter_y: [-0.46, 0.46]
+      self_filter_z_max: 0.90
+      grid_size_m: 20.0
+      grid_resolution: 0.10
+      inflation_m: 0.0          # use ~0.45 (raio do A300) para planejar direto na grade
+      publish_rate: 5.0
+      publish_voxel_cloud: true
+  livox_to_scan:
+    ros__parameters:
+      target_frame: base_link
+      transform_tolerance: 0.05
+      min_height: 0.20
+      max_height: 1.20
+      angle_min: -3.14159
+      angle_max: 3.14159
+      angle_increment: 0.00873
+      scan_time: 0.1
+      range_min: 0.60
+      range_max: 20.0
+      use_inf: true
+      inf_epsilon: 1.0
+      queue_size: 2

@@ -1,0 +1,16 @@
+# Captura do par estéreo da ZED 2i sem o SDK (só as duas imagens + calibração de fábrica).
+/**:
+  zed_stereo:
+    ros__parameters:
+      device: '/dev/video0'
+      resolution: 'HD'            # 2K (2208x1242@15) | FHD (1920x1080@30) | HD (1280x720@30..60) | VGA (672x376@100)
+      fps: 30
+      publish_rate: 0.0           # 0 = publica todo quadro capturado
+      calibration_file: '/home/robot/zed_calib.conf'   # baixado de calib.stereolabs.com (SN 33943780)
+      publish_raw: true           # consumo local (stereo_image_proc, gravação)
+      publish_compressed: true    # visualização remota (Foxglove) sem estourar o Wi-Fi
+      jpeg_quality: 80
+      frame_id_left: 'zed_left_camera_optical_frame'
+      frame_id_right: 'zed_right_camera_optical_frame'
+      save_dir: '/home/robot/zed_captures'
+      flip_180: false

@@ -1,0 +1,41 @@
+# Ponte do Husky para o sistema Agrobot (RabbitMQ). Mesmo contrato que o drone x650-jetson usa.
+# Os números de `physical` são estimativas — CONFERIR com a ficha do A300 antes de usar em produção.
+/**:
+  agrobot_bridge:
+    ros__parameters:
+      broker_host: '10.0.0.96'
+      broker_port: 5672
+      broker_user: 'agrobot'
+      broker_password: 'agrobot'
+      broker_vhost: '/'
+
+      # identidade do agente: `source` é o id que a camada de serviços usa para rotear
+      agent_source: 'husky'          # = coluna destination_id do agente na UI
+      agent_id: '34'                 # = agents.id na UI (http://10.0.0.96:8090/agents/34)
+      protocol: 'ROS2'
+      agent_destination: 'service'
+      envelope_version: 'Agrobot_v2'
+
+      agent_name: 'Husky'
+      agent_type: 'GROUND'
+      agent_model: 'A300'
+      serial_number: 'a300-00096'
+      controller: 'Clearpath A300 MCU (proton)'
+      firmware: 'clearpath-robot 2.9.4 / agrobot_husky_nav 0.1.0'
+      supported_activities: ['MAPPING', 'MONITORING']
+
+      weight_kg: 70.0            # conferir
+      max_load_kg: 100.0         # conferir
+      max_speed_ms: 1.3          # conferir (teleop turbo do Clearpath vai a 1.5)
+      autonomy_minutes: 180      # conferir
+      sensors: ['gnss_rtk', 'lidar_3d', 'imu']
+      # `actuators` fica de fora: lista vazia no YAML não tem tipo inferível pelo rclpy;
+      # o padrão declarado no nó já resulta em [] no JSON enviado.
+
+      telemetry_period_s: 1.0
+      keep_alive_period_s: 10.0
+      details_period_s: 20.0
+
+      # fonte de pose: as duas antenas do Fixposition (igual ao gps_waypoint_follower)
+      dual_gnss_yaw_offset_deg: 90.0
+      publish_when_stale: true   # continua publicando (status OFFLINE/ERROR) se a pose sumir

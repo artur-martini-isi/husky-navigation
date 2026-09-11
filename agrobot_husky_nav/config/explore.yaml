@@ -1,0 +1,45 @@
+# Exploração autônoma por fronteiras. Indoor, velocidade baixa, joystick como segurança.
+/**:
+  explore:
+    ros__parameters:
+      map_topic: 'map'
+      scan_topic: 'scan'
+      map_frame: 'map'
+      base_frame: 'base_link'
+
+      robot_radius: 0.45          # raio rígido: o caminho nunca passa mais perto que isso (A300 ~0,99 x 0,67 m)
+      clearance_margin: 0.35      # folga extra preferida: encosta na parede só se não houver outro jeito
+      plan_resolution: 0.10       # A* numa grade de 10 cm (o mapa é de 5 cm)
+      min_frontier_cells: 8       # grupos menores que ~40 cm são ruído do mapa
+      goal_tolerance: 0.7
+      goal_timeout: 60.0          # troca de destino se não chegar nesse tempo
+      replan_period: 2.0          # replaneja o caminho enquanto anda
+      max_goal_distance: 30.0     # em linha reta; quem decide de verdade é o caminho do A*
+      blacklist_time: 90.0        # destino sem caminho fica descartado por este tempo
+      max_candidates: 6           # planeja para as N melhores e escolhe pelo caminho mais curto
+      allow_unknown: true         # pode planejar por área desconhecida, com penalidade
+      unknown_penalty: 2.5
+      lookahead: 0.8              # ponto perseguido à frente, sobre o caminho
+
+      max_linear: 0.3             # indoor: devagar
+      min_linear: 0.08
+      max_angular: 0.7
+      k_angular: 1.3
+      turn_in_place_angle: 0.7    # acima de ~40 graus, gira parado antes de avançar
+      control_rate: 10.0
+
+      # A repulsão reativa saiu: quem contorna obstáculo agora é o A*. O scan ficou como
+      # última barreira, para o que o mapa ainda não viu.
+      obstacle_stop_distance: 0.6
+      obstacle_slow_distance: 1.5
+      obstacle_half_angle_deg: 35.0
+      progress_distance: 0.3      # precisa se APROXIMAR do destino, não só se mexer
+      progress_time: 15.0
+
+      scan_timeout: 1.5
+      map_timeout: 15.0
+      require_joy: true
+      joy_timeout: 1.0
+      joy_start_button: 9
+      joy_stop_button: 1
+      joy_enable_buttons: [4, 5]

@@ -22,6 +22,12 @@ setup(
     entry_points={
         'console_scripts': [
             'gps_waypoint_follower = agrobot_husky_nav.gps_waypoint_follower:main',
+            'agrobot_bridge = agrobot_husky_nav.agrobot_bridge:main',
+            'zed_stereo = agrobot_husky_nav.zed_stereo:main',
+            'voxel_local_map = agrobot_husky_nav.voxel_local_map:main',
+            'explore = agrobot_husky_nav.explore:main',
+            'goto_point = agrobot_husky_nav.goto_point:main',
+            'follow_me = agrobot_husky_nav.follow_me:main',
         ],
     },
 )

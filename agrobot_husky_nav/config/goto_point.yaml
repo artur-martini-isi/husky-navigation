@@ -1,0 +1,56 @@
+# Navegação até marcadores colocados no mapa (clique no Foxglove ou JSON pela interface web).
+# Indoor, velocidade baixa, joystick como segurança: círculo aborta, L1/R1 devolve o controle.
+/**:
+  goto_point:
+    ros__parameters:
+      map_topic: 'map'
+      scan_topic: 'scan'
+      map_frame: 'map'
+      base_frame: 'base_link'
+
+      # Onde escutar o clique. No painel 3D do Foxglove, a ferramenta de publicar manda
+      # PoseStamped (com rumo, arrastando) ou PointStamped (só o ponto).
+      goal_pose_topic: 'goal_pose'
+      clicked_point_topic: 'clicked_point'
+      # Fora do namespace: o painel do Foxglove costuma publicar na raiz, sem prefixo.
+      extra_goal_topics: ['/move_base_simple/goal', '/goal_pose']
+      extra_point_topics: ['/clicked_point']
+      goal_mode: 'append'         # append = cada clique vira um waypoint na fila | replace = só o último
+
+      robot_radius: 0.45          # raio rígido: o caminho nunca passa mais perto que isso
+      clearance_margin: 0.35      # folga extra preferida
+      plan_resolution: 0.10       # A* numa grade de 10 cm (o mapa é de 5 cm)
+      allow_unknown: false        # com mapa pronto, não atravessa o que não foi mapeado
+      unknown_penalty: 4.0
+      replan_period: 1.5
+      plan_fail_limit: 5          # tentativas antes de desistir do marcador
+
+      goal_tolerance: 0.35        # o marcador é um clique: chegar a 35 cm já é chegar
+      align_final_yaw: true       # se o clique trouxe rumo, gira no lugar ao chegar
+      yaw_tolerance: 0.15
+      goal_timeout: 180.0
+      hold_time: 1.0              # pausa sobre o waypoint antes de seguir para o próximo
+
+      lookahead: 0.6
+      max_linear: 0.3
+      min_linear: 0.08
+      max_angular: 0.7
+      k_angular: 1.3
+      turn_in_place_angle: 0.7
+      control_rate: 10.0
+
+      obstacle_stop_distance: 0.6
+      obstacle_slow_distance: 1.5
+      obstacle_half_angle_deg: 35.0
+      blocked_timeout: 20.0       # parado contra obstáculo por este tempo: desiste do marcador
+      progress_distance: 0.3
+      progress_time: 20.0
+
+      scan_timeout: 1.5
+      map_timeout: 15.0
+      require_joy: true
+      joy_timeout: 1.0
+      auto_start: true            # marcador novo já manda andar
+      joy_start_button: 9
+      joy_stop_button: 1
+      joy_enable_buttons: [4, 5]

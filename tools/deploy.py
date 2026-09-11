@@ -9,7 +9,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PKG = os.path.join(HERE, '..', 'agrobot_husky_nav')
 HOST, PW = 'robot@10.0.0.60', 'clearpath'
 ROBOT_SCRIPTS = ['field_up.sh', 'nav_kill.sh', 'fixposition_wired.sh', 'ntrip_tunnel_up.sh',
-                 'make_forward_mission.py', 'make_relative_mission.py', 'heading_check.py']
+                 'make_forward_mission.py', 'make_relative_mission.py', 'heading_check.py',
+                 'record_waypoints.py', 'save_map.sh', 'goto.py']
 
 
 def run(cmd, args, timeout=600):
