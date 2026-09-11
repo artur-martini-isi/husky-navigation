@@ -42,6 +42,11 @@ em nenhum dos dois**, por decisão de projeto (stack leve).
 Sincronização: **o diretório local é a fonte de verdade**. `python3 tools/deploy.py` copia o pacote
 e os scripts para o robô e compila. Auditado em 2026-09-10: pacote e scripts idênticos nos dois lados.
 
+Os diagramas destes documentos estão em **Mermaid**, que o GitHub renderiza direto no navegador.
+Para gerar imagem localmente: `mmdc -p pptr.json -i diagrama.mmd -o diagrama.png`, com
+`pptr.json` contendo `{"args":["--no-sandbox"]}` — sem isso o Chrome do renderizador não sobe no
+Ubuntu 24.04.
+
 ## Acesso
 
 | Item | Valor |
@@ -105,18 +110,36 @@ Em camadas, da mais forte para a mais fraca:
 Validado em campo em 2026-09-09. Sem mapa e sem planejador: o robô sabe onde está pelo RTK, aponta
 para o próximo waypoint e anda, com o lidar apenas como guarda de colisão.
 
+```mermaid
+flowchart LR
+  subgraph net["Internet"]
+    RBMC["IBGE RBMC<br/>NTRIP, mountpoint RSSL0"]
+  end
+  subgraph lap["Laptop, internet pelo celular"]
+    TUN["tools/ntrip_tunnel.py<br/>túnel SSH reverso"]
+  end
+  subgraph rob["Robô a300_00096"]
+    NTRIP["ntrip_client<br/>127.0.0.1:2101"]
+    DRV["fixposition_driver"]
+    FP["Fixposition Vision-RTK 2<br/>fonte de correção: I/O port"]
+    LIVOX["Livox MID360"]
+    P2S["pointcloud_to_laserscan"]
+    FOL["gps_waypoint_follower<br/>pose_source: dual_gnss"]
+    JOY["joystick PS4"]
+    MUX["twist_mux"]
+    PLAT["plataforma"]
+  end
+  RBMC --> TUN --> NTRIP
+  NTRIP -- "sensors/ins_0/rtcm" --> DRV --> FP
+  FP -- "gps_0/fix + gps_1/fix, RTK fixed" --> FOL
+  LIVOX -- "/livox/lidar" --> P2S -- "scan" --> FOL
+  FOL -- "cmd_vel, prioridade 1" --> MUX
+  JOY -- "prioridade 10, bypass" --> MUX
+  MUX --> PLAT
 ```
-IBGE RBMC (NTRIP, RSSL0) ──internet──> laptop ──túnel SSH reverso──> robô:127.0.0.1:2101
-                                                                        │ ntrip_client (ROS)
-                                                                        ▼ sensors/ins_0/rtcm
-Fixposition (cabo, fonte de correção = "I/O port") <── fixposition_driver ──┘
-   │ gps_0/fix + gps_1/fix (RTK fixed)            Livox MID360 ──> pointcloud_to_laserscan ──> scan
-   ▼                                                                                       │
-gps_waypoint_follower (pose_source=dual_gnss): posição = ponto médio das antenas,          │
-   rumo = linha GNSS1→GNSS2 + 90°; controlador P de rumo; guarda de obstáculos <───────────┘
-   ▼ cmd_vel (TwistStamped, prioridade 1)        joystick PS4 (prioridade 10) = bypass
-twist_mux ──> plataforma
-```
+
+Dentro do seguidor: a posição é o ponto médio das duas antenas, o rumo é a linha GNSS1→GNSS2 mais
+90°, o controle é um P de rumo e o `scan` entra como guarda de obstáculos.
 
 - **Correções RTK via ROS 2**: a fonte de correção do sensor é a entrada I/O (RTCM chega pelo stream
   TCP do driver). Provado: parando o cliente NTRIP a taxa de correção vai a 0 e o fix cai de RTK para
@@ -162,16 +185,25 @@ joystick, com retorno ao ponto de partida capturado no início da missão: 0,53 
 Validado no laboratório em 2026-09-11. Sem GNSS: quem diz onde o robô está é o `slam_toolbox`,
 casando o `scan` do MID360 contra o mapa que ele mesmo constrói.
 
+```mermaid
+flowchart LR
+  LIVOX["Livox MID360"] -- "/livox/lidar" --> P2S["pointcloud_to_laserscan"]
+  P2S -- "scan, 10 Hz" --> SLAM["slam_toolbox"]
+  P2S -- "scan" --> GUARD["guarda de obstáculos"]
+  SLAM -- "map, OccupancyGrid<br/>TF map→odom" --> PLAN["grid_planner<br/>A* + suavização"]
+  SLAM -- "fronteiras do próprio mapa" --> EXP["explore"]
+  FOX["Foxglove<br/>clique no mapa"] -- "goal_pose / clicked_point" --> GOTO["goto_point"]
+  CLI["~/goto.py"] -- "~/set_goal, JSON" --> GOTO
+  GOTO -- "destino escolhido pela pessoa" --> PLAN
+  EXP -- "destino escolhido por fronteira" --> PLAN
+  PLAN -- "caminho" --> PP["path_follow<br/>perseguição por curvatura"]
+  GUARD -- "freio e parada" --> PP
+  PP -- "cmd_vel, prioridade 1" --> MUX["twist_mux"]
+  JOY["joystick PS4"] -- "prioridade 10, bypass" --> MUX
+  MUX --> PLAT["plataforma"]
 ```
-Livox MID360 ──> pointcloud_to_laserscan ──> scan (10 Hz) ─┬─> slam_toolbox ──> map + TF map→odom
-                                                           │                      │
-                                                           │   grid_planner (A*) <─┘
-   Foxglove: clique no mapa ──> goal_pose / clicked_point ─┼─> goto_point ─┐
-   fronteiras do próprio mapa ────────────────────────────┴─> explore ─────┤
-                                                           │               ▼ path_follow (pure pursuit)
-                                                           └──> guarda de obstáculos ──> cmd_vel
-                             joystick PS4 (prioridade 10) = bypass ──────────────────────┘
-```
+
+`goto_point` e `explore` são alternativas, nunca simultâneos: os dois publicam em `cmd_vel`.
 
 Três nós, na ordem em que sobem:
 
@@ -214,6 +246,35 @@ existe transformada entre elas.
 dois, a camada de segurança é a mesma e os dois seguidores já publicam estado em JSON no mesmo
 formato. O planejador e o seguidor do indoor não dependem de SLAM: dependem de uma grade de ocupação
 e de uma TF até `base_link`, que também podem vir de outra fonte.
+
+```mermaid
+flowchart TB
+  subgraph hoje["Hoje: duas noções de onde estou, sem transformada entre elas"]
+    direction LR
+    WGS["lat/lon do RTK"] -. "nenhuma relação conhecida" .- MAP1["map, do SLAM"]
+    MAP1 --> ODOM1["odom"] --> BASE1["base_link"]
+    WGS --> FOL1["gps_waypoint_follower"]
+    MAP1 --> GOTO1["goto_point / explore"]
+  end
+  subgraph futuro["Híbrido: uma árvore só, e a transição troca quem publica map→odom"]
+    direction LR
+    EARTH["earth<br/>âncora lat/lon do mapa"] --> MAP2["map"] --> ODOM2["odom"] --> BASE2["base_link"]
+    SLAM2["slam_toolbox<br/>indoor"] -. "publica map→odom" .-> MAP2
+    GNSS2["nó GNSS<br/>outdoor"] -. "publica map→odom" .-> MAP2
+  end
+  hoje ~~~ futuro
+```
+
+```mermaid
+flowchart LR
+  MISS["missão única<br/>cada waypoint declara o frame:<br/>map ou wgs84"] --> SUP["supervisor<br/>dono do cmd_vel"]
+  CRIT["critério de transição<br/>fix RTK, casamento do SLAM,<br/>cerca geográfica, com histerese"] --> SUP
+  SUP -- "trecho outdoor" --> FOL["gps_waypoint_follower"]
+  SUP -- "trecho indoor" --> GOTO["goto_point"]
+  FOL --> CMD["cmd_vel<br/>sempre um publicador só"]
+  GOTO --> CMD
+  CMD --> MUX["twist_mux"] --> PLAT["plataforma"]
+```
 
 **O que falta**, em ordem de dependência:
 

@@ -99,16 +99,28 @@ com um teste de ponta a ponta usando o agente real do Husky.
 Manter o PLAAC como agent-manager com o contrato v1 dele, e acrescentar no robô um **adaptador de
 comunicação** fino entre o RabbitMQ da camada de serviços e os tópicos do PLAAC. **Nada muda nos serviços.**
 
+**Descida, comando saindo da camada de serviços para o robô:**
+
+```mermaid
+flowchart LR
+  D1["activity_dispatch<br/>waypoints lat/lng"] -- "adaptador traduz" --> D2["mission.upload<br/>device.frame: WGS84"]
+  D2 --> D3["PLAAC<br/>valida, dá ack, executa"] --> D4["agrobot_husky_nav<br/>set_mission + start"]
+  A1["activity_abort"] -- "adaptador traduz" --> A2["mission.cancel"]
+  A2 --> A3["PLAAC<br/>executor.cancel()"] --> A4["agrobot_husky_nav<br/>stop"]
 ```
-RabbitMQ (laptop/servidor)          Adaptador (no robô)              PLAAC                      agrobot_husky_nav
-──────────────────────────          ───────────────────              ─────                      ─────────────────
-activity_dispatch  (lat/lng) ─────► traduz p/ mission.upload  ─────► valida, ack, executor ────► set_mission + start
-activity_abort              ─────► mission.cancel             ─────► executor.cancel()    ────► stop
-activity_status             ◄───── ack / progress / result    ◄───── mission.*            ◄──── status (JSON)
-agent_telemetry             ◄───── robot.telemetry.state      ◄───── telemetria           ◄──── status + BMS
-agent_keep_alive            ◄───── agent.heartbeat            ◄─────
-agent_details               ◄───── agent.announce (skills)    ◄─────
+
+**Subida, estado saindo do robô para a camada de serviços:**
+
+```mermaid
+flowchart LR
+  S1["agrobot_husky_nav<br/>status, JSON"] --> P1["PLAAC<br/>mission.*"] --> T1["adaptador<br/>ack / progress / result"] --> V1["activity_status"]
+  S2["agrobot_husky_nav<br/>status + BMS"] --> P2["PLAAC<br/>telemetria"] --> T2["adaptador<br/>robot.telemetry.state"] --> V2["agent_telemetry"]
+  P3["PLAAC"] --> T3["adaptador<br/>agent.heartbeat"] --> V3["agent_keep_alive"]
+  P4["PLAAC"] --> T4["adaptador<br/>agent.announce, skills"] --> V4["agent_details"]
 ```
+
+As quatro colunas são sempre as mesmas: RabbitMQ da camada de serviços (contrato v2), adaptador no
+robô, PLAAC (contrato v1) e o pacote de navegação.
 
 Por que assim: preserva o ack/progresso que o PLAAC já implementa (mais rico que o v2), não exige
 mexer em repositórios de outras pessoas, e o adaptador é substituível quando o contrato convergir.
