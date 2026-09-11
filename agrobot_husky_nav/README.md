@@ -394,7 +394,11 @@ em vez de recusar.
 
 **Desistência**: sem caminho por `plan_fail_limit` tentativas, parado contra obstáculo por
 `blocked_timeout`, sem se aproximar `progress_distance` em `progress_time`, ou `goal_timeout`
-estourado — o marcador é descartado e a fila segue. Diferente do `explore`, aqui `allow_unknown` é
+estourado — o marcador é descartado e a fila segue. **O tempo de pausa não conta**: quando o
+operador segura L1, quando o joystick some ou quando o SLAM engasga, os prazos são adiados pelo
+tempo parado e a medida de progresso recomeça na retomada. Sem isso uma pausa de 37 s bastava para
+o nó acordar convencido de que não houve progresso e descartar um marcador intocado — foi o que
+aconteceu no laboratório em 2026-09-11. O `~/status` mostra `paused_s` enquanto a pausa dura. Diferente do `explore`, aqui `allow_unknown` é
 `false`: com mapa pronto, não se atravessa o que não foi mapeado.
 
 **Segurança**, igual aos demais: segurar **L1/R1** pausa e devolve o controle, **Círculo** aborta;

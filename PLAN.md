@@ -161,6 +161,10 @@ para arquitetura e operação, `agrobot_husky_nav/README.md` para o pacote.
   seguidor, para não divergirem.
 - Verificado no robô: 100 s de corrida, dois marcadores, desvio padrão do comando angular de
   0,064 rad/s e 11 trocas de sinal (0,11/s), a 0,19 m/s de média.
+- Corrigido também: os prazos (progresso, `goal_timeout`, `blocked_timeout`) corriam durante a pausa.
+  O operador segurou L1 por 37 s e, na retomada, o nó descartou o marcador por "sem progresso" sem o
+  robô ter tido chance de andar. Agora o tempo parado por ordem de alguém é descontado dos prazos e a
+  medida de progresso recomeça na retomada, nos dois nós (`goto_point` e `explore`).
 - Ajuste seguinte: a reamostragem também no trecho reto de dois pontos. Sem ela o caminho reto saía
   com dois pontos, o ponto perseguido virava o próprio destino a metros de distância e o desvio
   lateral era corrigido devagar demais.

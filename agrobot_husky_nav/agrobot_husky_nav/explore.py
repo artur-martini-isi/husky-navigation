@@ -118,6 +118,7 @@ class Explore(Node):
 
         self.state, self.reason = IDLE, ''
         self.paused_by_command = False
+        self.pausado_em = None             # início da pausa em curso, para descontar dos prazos
         self.map = self.scan = None
         self.map_time = self.scan_time = self.joy_time = 0.0
         self.joy_enable_held = False
@@ -319,15 +320,31 @@ class Explore(Node):
 
     def control(self):
         if self.state in (IDLE, ABORTED, DONE):
+            self.pausado_em = None
             return
         if self.state == PAUSED and self.paused_by_command:
+            if self.pausado_em is None:
+                self.pausado_em = self.now()
             self.send(0.0, 0.0)
             return
         problem = self.health()
         if problem:
             self.pause(problem)
+            if self.pausado_em is None:
+                self.pausado_em = self.now()
             return
         pose, t = self.robot_pose(), self.now()
+        if self.pausado_em is not None:
+            # o tempo parado por ordem de alguém não conta contra o destino: sem isto, uma pausa
+            # longa faz o nó acordar convencido de que não houve progresso e trocar de destino
+            dt = t - self.pausado_em
+            self.pausado_em = None
+            self.goal_time += dt
+            self.progress_ref = None
+            self.last_plan = 0.0
+            self.follower.reset()
+            if dt > 1.0:
+                self.get_logger().info('retomando após %.0f s de pausa' % dt)
 
         if self.goal is None or t - self.goal_time > self.goal_timeout:
             if self.goal is not None:

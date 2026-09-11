@@ -152,6 +152,7 @@ class GotoPoint(Node):
 
         self.state, self.reason = IDLE, 'sem marcador'
         self.paused_by_command = False
+        self.pausado_em = None             # início da pausa em curso, para descontar dos prazos
         self.map = self.scan = None
         self.map_time = self.scan_time = self.joy_time = 0.0
         self.joy_enable_held = False
@@ -405,10 +406,31 @@ class GotoPoint(Node):
             self.get_logger().info('marcador (%.2f, %.2f) alcançado | %d no total, fila vazia'
                                    % (x, y, self.alcancados))
 
+    def descontar_pausa(self, t):
+        """Devolve aos prazos o tempo que o robô passou parado por ordem de alguém.
+
+        Sem isto, uma pausa longa (o operador segurando L1, por exemplo) fazia o nó acordar já
+        convencido de que não houve progresso, e descartar o marcador injustamente: o relógio do
+        progresso corria enquanto o robô estava impedido de andar.
+        """
+        dt = t - self.pausado_em
+        self.pausado_em = None
+        self.goal_time += dt
+        self.blocked_since += dt
+        self.hold_until = min(self.hold_until + dt, t + self.hold_time)
+        self.progress_ref = None           # recomeça a medir do ponto onde a pausa terminou
+        self.last_plan = 0.0               # e replaneja: o mundo pode ter mudado na parada
+        self.follower.reset()
+        if dt > 1.0:
+            self.get_logger().info('retomando após %.0f s de pausa' % dt)
+
     def control(self):
         if self.state in (IDLE, ABORTED, ARRIVED):
+            self.pausado_em = None
             return
         if self.state == PAUSED and self.paused_by_command:
+            if self.pausado_em is None:
+                self.pausado_em = self.now()
             self.send(0.0, 0.0)
             return
         if not self.fila:
@@ -418,8 +440,12 @@ class GotoPoint(Node):
         problem = self.health()
         if problem:
             self.pause(problem)
+            if self.pausado_em is None:
+                self.pausado_em = self.now()
             return
         t = self.now()
+        if self.pausado_em is not None:
+            self.descontar_pausa(t)
         if t < self.hold_until:
             self.send(0.0, 0.0)
             return
@@ -579,6 +605,7 @@ class GotoPoint(Node):
             'pose': [round(pose[0], 2), round(pose[1], 2), round(math.degrees(pose[2]), 1)] if pose else None,
             'joy_ok': self.now() - self.joy_time <= self.joy_timeout,
             'paused_by_command': self.paused_by_command,
+            'paused_s': (round(self.now() - self.pausado_em, 1) if self.pausado_em else 0.0),
             'last_error': self.ultimo_erro,
             'health': self.health(),
         })))
