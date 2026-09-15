@@ -75,7 +75,7 @@ Ubuntu 24.04.
 | Rede cabeada do robô | `192.168.131.1/24` (bridge `br0`, sem DHCP). MCU em `.2`, Livox MID360 em `.109`, segundo Livox em `.112`, **Fixposition em `.35`** |
 | Fixposition | `http://192.168.131.35` (web UI e API JSON em `/api/v2/`). A conexão cabeada dele (`fp-navvr2-eth0-static-ip`) tinha **autoconnect desligado** e sumia a cada boot; em 2026-09-09 foi ligado por `POST /api/v2/net/conn_set {"connection":"fp-navvr2-eth0-static-ip","auto":true}` e passou a subir sozinho (verificado após reboot). Acesso do laptop via túnel: `ssh -L 8080:192.168.131.35:80 robot@10.0.0.60`. O Wi-Fi do sensor (antes `10.0.0.199`) não é mais usado |
 | Sistema Agrobot | RabbitMQ em `10.0.0.96:5672` (usuário `agrobot`, management em `:15672`, UI do manager em `:8090`). O Husky publica telemetria nele pela ponte `agrobot_bridge` (ver `agrobot_husky_nav/README.md`); o drone aparece como agente `x650-jetson` e o Husky como `husky` |
-| Foxglove | `ws://10.0.0.60:8765`. URDF em `/a300_00096/robot_description` (adicionar como URDF por tópico no painel 3D; frame `base_link`). Nuvem reduzida para Wi-Fi fraco: `/livox/lidar_lite` (`~/run_dec.sh`) |
+| Foxglove | `ws://10.0.0.60:8765`. URDF em **`/a300_00096/robot_description_foxglove`** (adicionar como URDF por tópico no painel 3D; frame `base_link`). Não use `robot_description` direto: ele é publicado uma única vez e some do painel quando a ponte assina como volátil, ver *Problemas conhecidos*. Nuvem reduzida para Wi-Fi fraco: `/livox/lidar_lite` (`~/run_dec.sh`) |
 | ROS 2 no laptop | Jazzy em `/opt/ros/jazzy`. Para ver o grafo do robô: `ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp ROS_DISCOVERY_SERVER=10.0.0.60:11811 ROS_SUPER_CLIENT=True`, depois `ros2 daemon stop; ros2 topic list --spin-time 8` |
 
 Sem `sshpass` no laptop: `tools/rssh.py '<comando>' [timeout_s]` roda comandos no robô (pexpect).
@@ -367,6 +367,15 @@ contínua mesmo sem RTK fixed e simplificaria muito o item 4.
 - **Foxglove**: a allowlist de assets do Clearpath só aceita extensões minúsculas (`sensor_arch.STL`
   foi duplicada como `.stl`), e o gerador serializa listas com `repr()`, o que dobra as barras
   invertidas de uma regex e quebra a busca das meshes.
+- **O robô some do painel 3D do Foxglove**: o `robot_state_publisher` publica o URDF **uma única
+  vez**, num tópico retido. A ponte do Foxglove decide a QoS da assinatura quando o **primeiro
+  cliente** pede o tópico e, se naquele instante o publicador ainda não tiver sido descoberto, ela
+  assina como `volatile` — e para um assinante volátil a mensagem retida nunca chega. A assinatura
+  ROS é uma só, compartilhada por todos os clientes, então um navegador que conectou cedo demais
+  estraga a visualização para todos. Aconteceu em 2026-09-11 e de novo em 2026-09-15. O contorno é
+  fechar e reabrir o Foxglove; a solução é o nó `urdf_beacon`, que repete a descrição a cada 5 s em
+  `robot_description_foxglove`. Ele sobe junto no `field_up.sh` e no `indoor_up.sh`. Verificado pela
+  própria ponte: no tópico repetido chegam 40 links e as meshes baixam; no original, nada.
 
 ## Interface web de teste (`webui/`)
 

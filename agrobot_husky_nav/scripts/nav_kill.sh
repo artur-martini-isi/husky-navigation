@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run ON THE ROBOT. Stops navigation-related processes safely. Usage: nav_kill.sh [nav|ntrip|livox|bridge|indoor|follow|explore|goto|slam|zed|all]
+# Run ON THE ROBOT. Stops navigation-related processes safely. Usage: nav_kill.sh [nav|ntrip|livox|bridge|indoor|follow|explore|goto|slam|zed|urdf|all]
 # Invoke by path; do not paste these patterns into an interactive shell command (pkill -f would match it).
 what=${1:-nav}
 kill_pat() { for p in $(pgrep -f "$1"); do [ "$p" != "$$" ] && [ "$p" != "$PPID" ] && kill "$p" 2>/dev/null; done; }
@@ -11,6 +11,7 @@ case "$what" in
   follow|all) kill_pat "agrobot_husky_nav follow_me.launch"; kill_pat "lib/agrobot_husky_nav/follow_me" ;;&
   explore|all) kill_pat "explore.launch.py"; kill_pat "lib/agrobot_husky_nav/explore" ;;&
   goto|all) kill_pat "goto_point.launch.py"; kill_pat "lib/agrobot_husky_nav/goto_point" ;;&
+  urdf|all)  kill_pat "urdf_beacon.launch.py"; kill_pat "lib/agrobot_husky_nav/urdf_beacon" ;;&
   slam|all)   kill_pat "agrobot_husky_nav slam.launch"; kill_pat "async_slam_toolbox_node" ;;&
   zed|all)    kill_pat "zed.launch.py"; kill_pat "lib/agrobot_husky_nav/zed_stereo" ;;&
   livox|all) kill_pat "livox_ros_driver2_node"; sleep 2; for p in $(pgrep -f "livox_ros_driver2_node"); do [ "$p" != "$$" ] && kill -9 "$p" 2>/dev/null; done ;;

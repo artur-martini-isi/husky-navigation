@@ -41,6 +41,11 @@ Rodam **no robô**. O `colcon build` os instala em `lib/agrobot_husky_nav`, ent�
 | `ntrip_tunnel_up.sh` | outdoor | Aponta o cliente NTRIP para o túnel SSH do laptop |
 | `start_livox_pc2.sh`, `restart_livox.sh`, `decimate.py`, `run_dec.sh`, `start_decimator.sh` | ambos | Driver do MID360 e a nuvem reduzida para Wi-Fi fraco |
 
+O `field_up.sh` e o `indoor_up.sh` sobem também o `urdf_beacon`, sem o qual o robô desaparece do
+painel 3D do Foxglove de tempos em tempos. O motivo está no cabeçalho de `urdf_beacon.py`: o URDF é
+publicado uma vez só e a ponte pode ter assinado o tópico como volátil, caso em que a mensagem
+retida nunca chega. A camada de URDF do Foxglove deve apontar para `robot_description_foxglove`.
+
 Uma armadilha vale a pena registrar: o `field_up.sh` exporta `FASTRTPS_DEFAULT_PROFILES_FILE`
 apontando para `~/fastdds_big_msg.xml`, e esse perfil **bloqueia a recepção de tópicos
 transient_local**. O `map` do SLAM é um deles, então o `indoor_up.sh` explicitamente não exporta
@@ -60,6 +65,7 @@ SLAM perfeitamente no ar.
 | `goto_point` | `map` (SLAM), `scan`, TF `map→base_link`, `joy_teleop/joy`, marcadores (`goal_pose`, `clicked_point`, `~/set_goal`) | `cmd_vel`, `goto_point/status` (JSON), `goto_point/path`, `goto_point/markers`; serviços `start`/`pause`/`stop`/`clear`/`skip` |
 | `slam_toolbox` | `scan`, TF `odom→base_link` | frame **`map`**, transformada `map→odom` e `map` (OccupancyGrid global) |
 | `voxel_local_map` | `/livox/lidar`, `platform/odom/filtered` | `voxel_cloud` (PointCloud2 voxelizada) e `local_map` (OccupancyGrid, janela rolante 20x20 m) |
+| `urdf_beacon` | `robot_description` (retido) | `robot_description_foxglove` a cada 5 s, para o painel 3D do Foxglove enxergar o robô mesmo quando a ponte assina como volátil |
 | `zed_stereo` | `/dev/video0` (ZED 2i como UVC, quadro lado a lado) | `zed/{left,right}/image_raw`, `.../compressed`, `.../camera_info`; serviço `zed/save` grava o par em PNG |
 | `ntrip_client` (launch separado) | caster NTRIP (`params_file`), `sensors/ins_0/gps_0/fix` como GGA | `sensors/ins_0/rtcm` (`rtcm_msgs/Message`) → driver → sensor |
 

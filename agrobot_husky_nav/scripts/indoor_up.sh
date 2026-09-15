@@ -36,6 +36,8 @@ sobe() {  # sobe <padrão-que-já-estaria-rodando> <rótulo> <log> <comando...>
 }
 
 echo "pilha indoor:"
+sobe "lib/agrobot_husky_nav/urdf_beaco[n]" "repetidor do URDF (Foxglove)" urdf_beacon.log \
+     ros2 launch agrobot_husky_nav urdf_beacon.launch.py
 sobe "livox_ros_driver2_nod[e]" "nuvem do MID360" livox.log /home/robot/start_livox_pc2.sh
 sobe "lib/agrobot_husky_nav/voxel_local_ma[p]" "scan + mapa local" indoor.log \
      ros2 launch agrobot_husky_nav indoor.launch.py

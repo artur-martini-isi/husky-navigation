@@ -17,5 +17,9 @@ if [ "${BRIDGE:-1}" = "1" ]; then
       --ros-args --params-file "$CFG" -r __ns:=/a300_00096 > /tmp/bridge.log 2>&1 < /dev/null &
     sleep 4; }
 fi
+pgrep -f "lib/agrobot_husky_nav/urdf_beaco[n]" >/dev/null || {
+  echo "starting urdf beacon (descrição do robô para o Foxglove)";
+  setsid nohup ros2 launch agrobot_husky_nav urdf_beacon.launch.py > /tmp/urdf_beacon.log 2>&1 < /dev/null &
+  sleep 3; }
 pgrep -f "http.server 8088" >/dev/null || { echo "starting web UI on :8088"; setsid nohup python3 -m http.server 8088 --directory /home/robot/webui > /tmp/webui.log 2>&1 < /dev/null & }
 echo "livox: $(pgrep -f 'livox_ros_driver2_nod[e]' | wc -l) ntrip: $(pgrep -f 'ntrip_ro[s]' | wc -l) bridge: $(pgrep -cf 'agrobot_bridg[e]') sensors: $(systemctl is-active clearpath-sensors) webui: http://$(hostname -I | awk '{print $1}'):8088"

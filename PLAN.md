@@ -187,6 +187,22 @@ para arquitetura e operação, `agrobot_husky_nav/README.md` para o pacote.
   `~/attic/2026-09-15/`. Credenciais NTRIP, calibração da ZED e o perfil do FastDDS ficaram onde
   estavam, porque não são scripts.
 
+### 2026-09-15 — o robô sumiu do painel 3D do Foxglove
+- Sintoma: a descrição do robô não aparecia mais. Servidor íntegro: `robot_state_publisher` no ar, a
+  ponte ouvindo na 8765, o URDF publicado com 24 KB e a allowlist de assets correta.
+- Diagnosticado com um cliente WebSocket mínimo que fala o protocolo do Foxglove: a ponte **anuncia**
+  o canal, mas assinar não traz mensagem nenhuma.
+- Causa: o URDF é publicado **uma única vez** num tópico retido, e a assinatura da ponte estava em
+  `BEST_EFFORT/VOLATILE`. Assinante volátil não recebe mensagem retida. A ponte escolhe a QoS quando
+  o primeiro cliente pede o tópico; se o publicador ainda não foi descoberto, cai no volátil e fica
+  assim enquanto houver cliente assinando — e a assinatura ROS é uma só para todos os clientes.
+- Solução: nó `urdf_beacon`, que guarda a descrição e a repete a cada 5 s em
+  `robot_description_foxglove`, tópico separado de propósito, porque o `controller_manager` também
+  assina `robot_description` e reage a cada mensagem nova. Sobe junto no `field_up.sh` e no
+  `indoor_up.sh`.
+- Verificado pela própria ponte: no tópico repetido chegam 40 links e a primeira mesh baixa com
+  3,1 MB; no tópico original, nada.
+
 ## Próximos passos
 1. **Modo híbrido indoor/outdoor** (ver o README): georreferenciar o mapa do SLAM com a lat/lon e o
    rumo da origem, unificar a árvore de TF em `earth → map → odom → base_link` trocando apenas quem

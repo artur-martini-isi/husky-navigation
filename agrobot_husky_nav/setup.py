@@ -30,6 +30,7 @@ setup(
             'voxel_local_map = agrobot_husky_nav.voxel_local_map:main',
             'explore = agrobot_husky_nav.explore:main',
             'goto_point = agrobot_husky_nav.goto_point:main',
+            'urdf_beacon = agrobot_husky_nav.urdf_beacon:main',
             'follow_me = agrobot_husky_nav.follow_me:main',
         ],
     },
