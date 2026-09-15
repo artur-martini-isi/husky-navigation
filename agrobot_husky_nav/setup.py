@@ -12,6 +12,9 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
+        # scripts de operação: em lib/<pacote> eles ficam a um `ros2 run` de distância, e o
+        # deploy ainda cria atalhos em /home/robot para o uso do dia a dia
+        ('lib/' + package_name, glob('scripts/*.sh') + glob('scripts/*.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

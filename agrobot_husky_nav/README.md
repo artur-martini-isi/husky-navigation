@@ -22,6 +22,31 @@ Onde procurar cada coisa:
 `goto_point`, `explore` e `follow_me` disputam o mesmo tópico; `~/nav_kill.sh nav|goto|explore|follow|all`
 encerra o que não for usar, e `ros2 topic info /a300_00096/cmd_vel` confirma que sobrou um.
 
+## Scripts de operação (`scripts/`)
+
+Rodam **no robô**. O `colcon build` os instala em `lib/agrobot_husky_nav`, então valem tanto
+`~/nome` (atalho criado pelo deploy) quanto `ros2 run agrobot_husky_nav nome`.
+
+| Script | Modo | O que faz |
+|---|---|---|
+| `field_up.sh` | outdoor | Sobe o que o teste de campo precisa: reinicia o driver do Fixposition se ele acabou de aparecer, Livox, NTRIP, ponte de telemetria e a interface web. `BRIDGE=0` pula a ponte |
+| `indoor_up.sh` | indoor | Sobe a pilha indoor: nuvem, scan, mapa local e SLAM, mais `goto` ou `explore` se pedido. `MAPA=<nome>` continua de um mapa salvo, em modo localização |
+| `nav_kill.sh` | ambos | Encerra o que estiver rodando: `nav`, `ntrip`, `livox`, `bridge`, `indoor`, `follow`, `explore`, `goto`, `slam`, `zed` ou `all` |
+| `save_map.sh` | indoor | Grava o mapa em `~/maps`: `.pgm`/`.yaml` para o servidor de mapas e `.data`/`.posegraph` para continuar o mapeamento |
+| `goto.py` | indoor | Manda o robô a um ponto do mapa sem depender do Foxglove; também `--status`, `--clear`, `--skip` |
+| `record_waypoints.py` | outdoor | Grava waypoints dirigindo com o joystick |
+| `make_forward_mission.py`, `make_relative_mission.py` | outdoor | Montam missões a partir da pose atual |
+| `heading_check.py` | outdoor | Confere o rumo das duas antenas contra o deslocamento medido |
+| `fixposition_wired.sh` | outdoor | Acerta a rede cabeada do Fixposition pela API |
+| `ntrip_tunnel_up.sh` | outdoor | Aponta o cliente NTRIP para o túnel SSH do laptop |
+| `start_livox_pc2.sh`, `restart_livox.sh`, `decimate.py`, `run_dec.sh`, `start_decimator.sh` | ambos | Driver do MID360 e a nuvem reduzida para Wi-Fi fraco |
+
+Uma armadilha vale a pena registrar: o `field_up.sh` exporta `FASTRTPS_DEFAULT_PROFILES_FILE`
+apontando para `~/fastdds_big_msg.xml`, e esse perfil **bloqueia a recepção de tópicos
+transient_local**. O `map` do SLAM é um deles, então o `indoor_up.sh` explicitamente não exporta
+esse perfil. Um shell que herdou a variável vê o planejador reclamar de "sem mapa do SLAM" com o
+SLAM perfeitamente no ar.
+
 ## Nós e tópicos (namespace `a300_00096`)
 
 | Nó | Entrada | Saída |

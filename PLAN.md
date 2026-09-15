@@ -169,6 +169,24 @@ para arquitetura e operação, `agrobot_husky_nav/README.md` para o pacote.
   com dois pontos, o ponto perseguido virava o próprio destino a metros de distância e o desvio
   lateral era corrigido devagar demais.
 
+### 2026-09-15 — organização do `/home/robot`
+- Os scripts de operação eram arquivos soltos em `/home/robot/`, copiados pelo deploy: 15 deles, sem
+  nada que impedisse a cópia no robô de divergir do repositório. Conferido antes de mexer: os 15
+  estavam idênticos, mas por sorte, não por construção.
+- Agora moram em `agrobot_husky_nav/scripts/`, dentro do pacote. O `colcon build` os instala em
+  `lib/agrobot_husky_nav`, o que os deixa a um `ros2 run` de distância, e o deploy cria em
+  `/home/robot/` um link para cada um. `~/nav_kill.sh all` continua valendo, e a documentação toda
+  segue correta, mas o arquivo agora é um link para o fonte instalado.
+- Promovidos ao repositório os cinco scripts do Livox que já viviam no robô e só tinham cópia morta
+  em `robot-home/` (diretório removido).
+- `goto_up.sh`, improviso da sessão anterior, virou `indoor_up.sh`: sobe nuvem, scan, mapa local e
+  SLAM, aceita `goto` ou `explore` como argumento e `MAPA=<nome>` para continuar de um mapa salvo.
+  Ao contrário do `field_up.sh`, não exporta o perfil do FastDDS que bloqueia transient_local, que é
+  justamente o que faria o planejador não receber o `map`.
+- Arrumação do resto: missões soltas para `~/missions/`, logs para `~/logs/`, cópias antigas para
+  `~/attic/2026-09-15/`. Credenciais NTRIP, calibração da ZED e o perfil do FastDDS ficaram onde
+  estavam, porque não são scripts.
+
 ## Próximos passos
 1. **Modo híbrido indoor/outdoor** (ver o README): georreferenciar o mapa do SLAM com a lat/lon e o
    rumo da origem, unificar a árvore de TF em `earth → map → odom → base_link` trocando apenas quem

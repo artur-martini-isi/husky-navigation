@@ -31,16 +31,34 @@ em nenhum dos dois**, por decisão de projeto (stack leve).
 | `PLAN.md` | Histórico do que foi feito (por data) e próximos passos |
 | `agrobot_husky_nav/` | Pacote ROS 2 da navegação (fonte de verdade; implantado em `~/colcon_ws/src` no robô) |
 | `agrobot_husky_nav/README.md` | Uso do pacote: launches, parâmetros, tópicos, joystick, NTRIP, SLAM, planejador |
-| `tools/` | Scripts. Os que rodam **no laptop**: `deploy.py`, `rssh.py`, `ntrip_tunnel.py`, `make_aruco.py`. Os que rodam **no robô** (copiados para `/home/robot/` pelo deploy): `field_up.sh`, `nav_kill.sh`, `fixposition_wired.sh`, `ntrip_tunnel_up.sh`, `make_forward_mission.py`, `make_relative_mission.py`, `heading_check.py`, `record_waypoints.py`, `save_map.sh`, `goto.py` |
+| `agrobot_husky_nav/scripts/` | Scripts de operação que rodam **no robô**: subida (`field_up.sh`, `indoor_up.sh`), parada (`nav_kill.sh`), missões (`make_*_mission.py`, `record_waypoints.py`), mapa (`save_map.sh`), destino (`goto.py`), sensores (`fixposition_wired.sh`, `heading_check.py`, `ntrip_tunnel_up.sh`) e os do Livox (`start_livox_pc2.sh`, `restart_livox.sh`, `decimate.py`, `run_dec.sh`, `start_decimator.sh`) |
+| `tools/` | Scripts que rodam **no laptop**: `deploy.py`, `rssh.py`, `ntrip_tunnel.py`, `make_aruco.py` |
 | `calib/` | Calibração de fábrica da ZED 2i e o alvo ArUco impresso do follow-me |
 | `missions/` | Missões usadas nos testes de campo (formato do seguidor), incluindo as gravadas com o joystick |
 | `proximos_passos_plaac.md` | Plano de integração com o PLAAC e as camadas de comunicação/serviços |
 | `webui/` | Interface web de teste (posição ao vivo, waypoints por clique, start/pause/stop) |
 | `inventory/` | Cópias de configuração do robô: `robot.yaml`, `ins_0.yaml`, `localization.yaml`, `twist_mux.yaml`, `netplan-50-clearpath-bridge.yaml` (senhas removidas), listas de tópicos |
-| `robot-home/` | Cópia dos scripts do Livox que já existiam no robô (`start_livox_pc2.sh`, `restart_livox.sh`, `decimate.py`, ...) |
 
 Sincronização: **o diretório local é a fonte de verdade**. `python3 tools/deploy.py` copia o pacote
-e os scripts para o robô e compila. Auditado em 2026-09-10: pacote e scripts idênticos nos dois lados.
+para o robô, compila e cria em `/home/robot/` um **atalho** para cada script de operação.
+
+Os scripts moram dentro do pacote (`agrobot_husky_nav/scripts/`) e o `colcon build` os instala em
+`~/colcon_ws/install/agrobot_husky_nav/lib/agrobot_husky_nav/`. Na prática isso dá três caminhos
+para a mesma coisa, todos válidos:
+
+```bash
+~/nav_kill.sh all                             # atalho, o do dia a dia
+ros2 run agrobot_husky_nav nav_kill.sh all    # pelo pacote, de qualquer lugar
+~/colcon_ws/install/agrobot_husky_nav/lib/agrobot_husky_nav/nav_kill.sh all   # caminho real
+```
+
+Antes de 2026-09-15 os scripts eram arquivos soltos em `/home/robot/`, copiados pelo deploy: davam
+para divergir do repositório sem ninguém perceber. Agora o arquivo em `/home/robot/` é um link, e
+editar no robô é editar o fonte instalado, que o próximo deploy sobrescreve. As cópias antigas
+ficaram em `/home/robot/attic/2026-09-15/`. Os arquivos de missão soltos foram para
+`/home/robot/missions/` e os logs para `/home/robot/logs/`. As credenciais NTRIP
+(`~/ntrip_ibge.yaml`, `~/ntrip_tunnel.yaml`), a calibração da ZED (`~/zed_calib.conf`) e o perfil
+do FastDDS continuam onde estavam: não são scripts e não entram no repositório.
 
 Os diagramas destes documentos estão em **Mermaid**, que o GitHub renderiza direto no navegador.
 Para gerar imagem localmente: `mmdc -p pptr.json -i diagrama.mmd -o diagrama.png`, com
@@ -205,7 +223,17 @@ flowchart LR
 
 `goto_point` e `explore` são alternativas, nunca simultâneos: os dois publicam em `cmd_vel`.
 
-Três nós, na ordem em que sobem:
+Um comando sobe a pilha inteira, e é o análogo indoor do `field_up.sh`:
+
+```bash
+~/indoor_up.sh              # nuvem do MID360 + scan + mapa local + SLAM (mapa novo)
+~/indoor_up.sh goto         # ... e o nó de ir-até-marcador
+~/indoor_up.sh explore      # ... e a exploração autônoma (não inicia sozinha)
+MAPA=teste_terceiro_andar_isisim ~/indoor_up.sh goto    # continuando de um mapa salvo
+```
+
+Ele imprime no fim quantos publicadores existem em `cmd_vel`, que é a conferência que importa. Os
+mesmos quatro passos, um a um, quando se quer controlar cada peça:
 
 ```bash
 ~/start_livox_pc2.sh                                  # nuvem do MID360
