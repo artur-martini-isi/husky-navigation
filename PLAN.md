@@ -203,6 +203,26 @@ para arquitetura e operação, `agrobot_husky_nav/README.md` para o pacote.
 - Verificado pela própria ponte: no tópico repetido chegam 40 links e a primeira mesh baixa com
   3,1 MB; no tópico original, nada.
 
+### 2026-09-16 — workspace `agrobot_ws` para as aplicações Agrobot
+- O pacote `husky_navigation` (de outro repositório) não executava as edições feitas nele. Causa:
+  **duas instalações** do mesmo pacote, uma na raiz do repositório e outra aninhada dentro do próprio
+  pacote, criada por um `colcon build` rodado de dentro dele. O `ros2 launch` resolvia a antiga.
+  Constatado pelo próprio nó de GPS, que anunciava namespace `a200_0000` e coordenadas `-22.001 /
+  -47.001`, enquanto o fonte editado dizia `a300_00096` e `-29.786 / -51.163`.
+- Criado `~/agrobot_ws` no padrão ROS, com `src/` guardando links para os pacotes no repositório git,
+  que segue como fonte de verdade. Seis pacotes: `husky_navigation`, `aruco_gps_bridge` e os quatro de
+  `husky_action`. Simulação (`rtk_emulator`, `workstation_mock`, `drone_navigation`, `px4_*`) ficou
+  de fora, por decisão de escopo.
+- `~/colcon_ws` **não** foi movido: o serviço `clearpath-robot` carrega o `setup.bash` dele, e movê-lo
+  derrubaria os sensores. Ficou com os drivers da plataforma e o `agrobot_husky_nav`.
+- `.bashrc` passa a carregar os dois workspaces, com teste de existência para um build quebrado não
+  deixar o shell sem ROS. Backup em `.bashrc.bak-2026-09-16`.
+- Verificado em shell de login limpo: uma instalação só no caminho, o launch entregue é idêntico ao
+  fonte editado, e o nó de GPS já anuncia o namespace e as coordenadas corretas.
+- Pendente no `husky_navigation`, para quem for mexer nele: o launch passa a nuvem do lidar onde o
+  Nav2 e o SLAM esperam uma varredura a laser, e inclui o RViz, que não sobe num robô sem sessão
+  gráfica.
+
 ## Próximos passos
 1. **Modo híbrido indoor/outdoor** (ver o README): georreferenciar o mapa do SLAM com a lat/lon e o
    rumo da origem, unificar a árvore de TF em `earth → map → odom → base_link` trocando apenas quem

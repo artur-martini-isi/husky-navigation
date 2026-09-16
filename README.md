@@ -88,7 +88,23 @@ Recomendado instalar chave SSH (`ssh-copy-id robot@10.0.0.60`).
   `ROS_SUPER_CLIENT=True`; `ros2 topic list` precisa de `--spin-time 8`.
 - `/etc/clearpath/robot.yaml` é symlink para `~/colcon_ws/src/senai02_a300/senai02_bringup/config/robot.yaml`
   (pacote customizado da SENAI). Após editar: `sudo systemctl restart clearpath-robot` regenera tudo.
-- Workspace `~/colcon_ws/src`: `fixposition_driver` (v6.1.x), `senai02_a300`, `ntrip_client` (LORD), `agrobot_husky_nav`.
+- **Dois workspaces**, desde 2026-09-16, e a separação importa:
+
+  | Workspace | Contém | Pode mudar de lugar? |
+  |---|---|---|
+  | `~/colcon_ws` | `fixposition_driver` (v6.1.x), `senai02_a300`, `ntrip_client` (LORD) e o nosso `agrobot_husky_nav` | **Não.** O serviço `clearpath-robot` carrega `colcon_ws/install/setup.bash`; movê-lo derruba os sensores |
+  | `~/agrobot_ws` | Aplicações Agrobot de outro repositório: `husky_navigation`, `aruco_gps_bridge`, `husky_action/*` | Sim |
+
+  O `~/agrobot_ws/src` guarda **links** para os pacotes dentro do repositório `Agrobot/agrobot-simulation`,
+  que continua sendo a fonte de verdade deles. Os pacotes de simulação (`rtk_emulator`,
+  `workstation_mock`, `drone_navigation`, `px4_*`) ficaram de fora do robô. O `.bashrc` carrega os
+  dois workspaces; detalhes em `~/agrobot_ws/README.md`.
+
+  **Compile sempre da raiz do workspace.** Compilar de dentro de um pacote cria um `install/`
+  aninhado, e foi o que aconteceu com o `husky_navigation`: havia duas instalações, o `ros2 launch`
+  resolvia a antiga, e nenhuma edição no fonte tinha efeito. O nó de GPS anunciava o namespace
+  `a200_0000` e coordenadas de referência de outro estado, enquanto o fonte já dizia `a300_00096`.
+  Depurar assim é investigar um arquivo que não está rodando.
 - Serviços Clearpath: `clearpath-robot`, `-platform`, `-sensors`, `-discovery`, `-vcan`. `platform-extras` está vazio.
 - Odometria de rodas + EKF (`platform/odom/filtered`, frame `odom`) a 50 Hz. **É o único elo comum aos
   dois modos**: contínua, sem saltos, e é sobre ela que o modo híbrido vai se apoiar.
