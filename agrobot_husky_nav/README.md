@@ -40,11 +40,21 @@ Rodam **no robô**. O `colcon build` os instala em `lib/agrobot_husky_nav`, ent�
 | `fixposition_wired.sh` | outdoor | Acerta a rede cabeada do Fixposition pela API |
 | `ntrip_tunnel_up.sh` | outdoor | Aponta o cliente NTRIP para o túnel SSH do laptop |
 | `start_livox_pc2.sh`, `restart_livox.sh`, `decimate.py`, `run_dec.sh`, `start_decimator.sh` | ambos | Driver do MID360 e a nuvem reduzida para Wi-Fi fraco |
+| `limpa_shm.py` | ambos | Remove de `/dev/shm` os arquivos do FastDDS que nenhum processo vivo usa mais |
 
 O `field_up.sh` e o `indoor_up.sh` sobem também o `urdf_beacon`, sem o qual o robô desaparece do
 painel 3D do Foxglove de tempos em tempos. O motivo está no cabeçalho de `urdf_beacon.py`: o URDF é
 publicado uma vez só e a ponte pode ter assinado o tópico como volátil, caso em que a mensagem
 retida nunca chega. A camada de URDF do Foxglove deve apontar para `robot_description_foxglove`.
+
+**Quando o middleware começa a falhar**: processos de ROS que morrem sem fechar deixam em
+`/dev/shm` os arquivos de porta e os semáforos do FastDDS. Acumulados, eles fazem novos processos
+imprimirem `Failed init_port ... open_and_lock_file failed`. O efeito não é só barulho no log: em
+2026-09-16 o gerenciador de ciclo de vida do Nav2 não conseguiu fechar o vínculo com o
+`controller_server` dentro dos 4 s de limite e **abortou a subida inteira**, deixando o
+`bt_navigator` e o `planner_server` em `inactive` e fazendo o Nav2 recusar todo destino. Havia 428
+arquivos ali, 112 deles órfãos. `limpa_shm.py` mostra o diagnóstico e, com `--aplicar`, remove só
+os que não têm referência viva. Depois disso a subida completou com `Managed nodes are active`.
 
 Uma armadilha vale a pena registrar: o `field_up.sh` exporta `FASTRTPS_DEFAULT_PROFILES_FILE`
 apontando para `~/fastdds_big_msg.xml`, e esse perfil **bloqueia a recepção de tópicos
