@@ -1,237 +1,182 @@
-# Próximos passos — integrar o Husky A300 ao PLAAC e às camadas Agrobot
+# Integrar o Husky A300 ao PLAAC e às camadas Agrobot
 
-Documento de planejamento escrito em 2026-09-09, a partir de uma leitura completa dos quatro
-repositórios (`services/`, `comms/`, `agrobot-physical-layer/plaac`, `agrobot-simulation`) cruzada
-com o que já está **validado em campo** no robô real (ver `README.md` e `PLAN.md` deste diretório).
-
-Nada aqui foi implementado ainda. A navegação por waypoints GNSS do Husky funciona de forma
-autônoma (`agrobot_husky_nav`), e é essa capacidade que queremos expor como **skill** de um agente
-PLAAC comandado pela camada de serviços.
+**Revisão de 2026-09-21.** A versão anterior deste documento era de 2026-09-09 e ficou obsoleta:
+entre uma data e outra a camada de comunicação ganhou um **gateway** e o orquestrador migrou o
+envelope. Três das nove lacunas que listávamos foram resolvidas por outras pessoas, e a arquitetura
+que propúnhamos (um adaptador AMQP no robô) **deixou de fazer sentido** — o gateway ocupa esse lugar.
 
 ---
 
 ## 1. Objetivo
 
-Fechar o caminho completo:
-
 ```
-UI/serviços (missão) → camada de comunicação → agent-manager (PLAAC) no robô → agrobot_husky_nav → Husky anda
-                     ←        progresso, telemetria e resultado                                  ←
-```
-
-com um teste de ponta a ponta usando o agente real do Husky.
-
----
-
-## 2. Estado de cada camada (2026-09-09)
-
-### 2.1 Camada de serviços — `services/agrobot-manager` + `services/agrobot-orchestrator`
-- Missão criada na UI (Laravel/Vue) → `POST /api/mission/start` no orquestrador (Node/Fastify).
-- O orquestrador **gera os waypoints** a partir de polígonos PostGIS por cobertura boustrophedon
-  (`services/Boustro.ts`, `models/activities/*.ts`) — não existe endpoint "suba esta lista de waypoints".
-- Despacho por **RabbitMQ**, fila `activity_dispatch` (`models/activities/Activity.ts:120-145`):
-  `{agentId, protocol:"ROS2", version, correlationId, timestamp, seq, payload:{missionId, activityId, taskType, waypoints:[{lat,lng,altitude}]}}`
-- Filas de retorno consumidas: `activity_status`, `agent_telemetry`, `agent_keep_alive`, `agent_details`, `agent_emergency`.
-- Filas declaradas **sem consumidor** (a caixa de entrada do robô): `activity_dispatch`, `activity_abort`, `agent_config`, `agent_alert`.
-- Registro de agente é **manual na UI** (`agents.supported_activities` jsonb = as "skills"); `agent_details`
-  e `agent_keep_alive` não persistem no banco.
-- Único "robô" que consome `activity_dispatch` hoje: `.scripts/test-simulation.ts` (robô falso).
-- Stack em `agrobot-docker/docker-compose.yml` (Postgres+PostGIS, RabbitMQ, Mosquitto ocioso, manager, orchestrator).
-  Submódulos `services/manager` e `services/orchestrator` estão **vazios** neste clone.
-
-### 2.2 Camada de comunicação — `comms/agrobot-json-message-lib` + `comms/agrobot-communication`
-- Contrato vivo é o **`Agrobot_v2`**: envelope `{source, destination, version, correlationId?, timestamp, seq, payload}`
-  (**sem campo `type`**), 9 tipos de mensagem, `activity_dispatch` é o único com waypoints lat/lng.
-- Ponte **RabbitMQ ↔ ROS 2** pronta: `conversors/rabbitros` transforma cada fila em tópico
-  `std_msgs/String` (`/activity_dispatch`, `/activity_status`, ...). Consome com `passive=True`,
-  então as filas precisam existir antes.
-- Dois defeitos conhecidos: o gateway publica protobuf e a ponte faz `decode('utf-8')`
-  (`rabbitros_adapter.py:74-80` vs `rabbitros.py:133`); e o broker padrão está fixo em `192.168.0.103`
-  (`rabbitros.py:17`).
-- Existem **três cópias divergentes** de schemas (biblioteca v2, `gateway/schemas` v1 pontuado,
-  `communication-container/schemas` v1). Não há `mission.ack`, `mission.progress` nem `mission.result` no v2.
-
-### 2.3 PLAAC — `agrobot-physical-layer/plaac` (branch `main` é a mais completa)
-- Transporte: **só tópicos ROS 2 com JSON** (`std_msgs/String`), prefixo `/agrobot/<agent_id>/...`.
-  Não fala MQTT/AMQP — por decisão (D-09, a ponte é papel da camada de comunicação).
-- Ciclo implementado: `mission.upload` → validação por JSON Schema → `mission.ack` →
-  `mission.progress` (VALIDATED/PLANNED/RUNNING/PAUSED) → `mission.result` (COMPLETED/FAILED/CANCELLED/INTERRUPTED),
-  mais `agent.announce` (catálogo de skills), `agent.heartbeat` e `robot.telemetry.state`.
-- **Waypoints só em métrico** `{seq, x, y, z, yaw}` (`mission.upload-1.0.json:85-118`). Não há lat/lon,
-  embora `device.frame` já aceite `WGS84` e exista um schema `robot.telemetry.gnss` (nunca publicado).
-- Executores: `MissionExecutor` (simulado) e `Nav2MissionExecutor` (`nav2_msgs/NavigateToPose`).
-  Seleção **fixa** por `use_nav2` (`agent_manager_node.py:273-290`). `pause`/`resume` do Nav2 são no-ops.
-- Skills: `HuskyA300_UGV_Agent.SKILL_DESCRIPTORS` já declara **`follow_waypoints`** (NAVIGATION, com
-  `robot_speed`, `tolerance_m`, precondições `gps_fix`/`nav_stack_up`) — exatamente a nossa capacidade real.
-  O `MissionValidator` exige esse nome quando a missão tem waypoints.
-- Telemetria é stub (`AgentHardwareInterface.get_state()` devolve `{"status": "IDLE"}` fixo).
-- Branch `origin/4-desenvolver-hardware-interface-plaac`: tem `husky_hardware_interface.py` (odom, bateria,
-  `cmd_vel`) mas com namespace errado (`a300_0000` ≠ `a300_00096`) e **não está ligada** a nenhum agente.
-- Milestones: M1/M2 no código mas sem validação ponta a ponta; M3 parcial; M4 não iniciado.
-
-### 2.4 Robô real — `husky-config/agrobot_husky_nav` (validado em campo)
-- `gps_waypoint_follower`: entrada `set_mission` (String YAML/JSON) e `load_mission` (caminho),
-  serviços `start`/`pause`/`stop` (`std_srvs/Trigger`), saída `status` (String JSON a 2 Hz com
-  estado, lat/lon, rumo, waypoint atual, distância, saúde, fix RTK) e `cmd_vel`.
-- Missões em **lat/lon** com tolerância por ponto. Guarda de obstáculos pelo MID360 e bypass por joystick.
-- Testes de campo: 5 m reto; quadrado de 5 m a 0,5 e 1,0 m/s; percurso gravado de 5 pontos (2026-09-09).
-
----
-
-## 3. Onde as pontas não se encontram
-
-| # | Lacuna | Impacto |
-|---|---|---|
-| 1 | Serviços falam **v2 por RabbitMQ**; PLAAC fala **v1 por tópicos ROS**. Ninguém traduz | Nada chega ao robô |
-| 2 | Envelope do orquestrador (`agentId`) ≠ envelope do schema v2 (`source`/`destination`); a validação só loga | Um agente que validar de verdade rejeita o despacho |
-| 3 | `mission.upload` do PLAAC **não aceita lat/lon**; serviços só mandam lat/lon | Missão GPS é rejeitada com `SCHEMA_INVALID` |
-| 4 | PLAAC não tem executor para o nosso seguidor (só simulado e Nav2), nem `robot_namespace` configurável | Não há como acionar `agrobot_husky_nav` |
-| 5 | v2 não tem progresso por waypoint (só `activity_status`); o `mission.progress` do PLAAC não tem consumidor | Perde-se a granularidade que o robô já produz |
-| 6 | `activity_abort` é declarada mas nunca enviada; PLAAC tem `mission.cancel` | Sem parada remota |
-| 7 | Telemetria real (posição, bateria) não existe nem no PLAAC nem no adaptador | UI não mostra o robô no mapa |
-| 8 | Registro/skills: `agent_details` não persiste; `agents.id` precisa casar com o `agentId` na mão | Alocação de agente frágil |
-| 9 | Ponte `rabbitros`: bug protobuf/utf-8 e broker fixo | Mensagens vão para a DLQ |
-
----
-
-## 4. Arquitetura proposta
-
-Manter o PLAAC como agent-manager com o contrato v1 dele, e acrescentar no robô um **adaptador de
-comunicação** fino entre o RabbitMQ da camada de serviços e os tópicos do PLAAC. **Nada muda nos serviços.**
-
-**Descida, comando saindo da camada de serviços para o robô:**
-
-```mermaid
-flowchart LR
-  D1["activity_dispatch<br/>waypoints lat/lng"] -- "adaptador traduz" --> D2["mission.upload<br/>device.frame: WGS84"]
-  D2 --> D3["PLAAC<br/>valida, dá ack, executa"] --> D4["agrobot_husky_nav<br/>set_mission + start"]
-  A1["activity_abort"] -- "adaptador traduz" --> A2["mission.cancel"]
-  A2 --> A3["PLAAC<br/>executor.cancel()"] --> A4["agrobot_husky_nav<br/>stop"]
+UI/serviços → orquestrador → RabbitMQ → gateway (workstation) → UDP → gateway (husky)
+    → tópicos ROS 2 → [ PLAAC ] → agrobot_husky_nav → Husky anda
+    ←            activity_status, agent_telemetry, keep_alive, details            ←
 ```
 
-**Subida, estado saindo do robô para a camada de serviços:**
-
-```mermaid
-flowchart LR
-  S1["agrobot_husky_nav<br/>status, JSON"] --> P1["PLAAC<br/>mission.*"] --> T1["adaptador<br/>ack / progress / result"] --> V1["activity_status"]
-  S2["agrobot_husky_nav<br/>status + BMS"] --> P2["PLAAC<br/>telemetria"] --> T2["adaptador<br/>robot.telemetry.state"] --> V2["agent_telemetry"]
-  P3["PLAAC"] --> T3["adaptador<br/>agent.heartbeat"] --> V3["agent_keep_alive"]
-  P4["PLAAC"] --> T4["adaptador<br/>agent.announce, skills"] --> V4["agent_details"]
-```
-
-As quatro colunas são sempre as mesmas: RabbitMQ da camada de serviços (contrato v2), adaptador no
-robô, PLAAC (contrato v1) e o pacote de navegação.
-
-Por que assim: preserva o ack/progresso que o PLAAC já implementa (mais rico que o v2), não exige
-mexer em repositórios de outras pessoas, e o adaptador é substituível quando o contrato convergir.
-
-### Mapeamento de mensagens
-
-| v2 (serviços) | v1 (PLAAC) | Observações |
-|---|---|---|
-| `activity_dispatch.payload.waypoints[{lat,lng}]` | `mission.upload.payload.waypoints[{seq,lat,lon}]` com `device.frame: WGS84` | exige extensão do schema (§5.1) |
-| `taskType` MAPPING/MONITORING/WEEDING | `task_type` MAPPING/NAVIGATION/WEEDING | MONITORING → NAVIGATION por ora |
-| `missionId` + `activityId` | `mission_id` (string `"<missionId>:<activityId>"`) | o adaptador guarda o par para a volta |
-| `agentId` | `device.id` = `agent_id` do PLAAC | decidir a identidade (§7) |
-| `activity_status{status}` | `mission.ack`/`progress`/`result` | ACCEPTED→IN_PROGRESS, COMPLETED→COMPLETED, FAILED/CANCELLED→FAILED |
-| `agent_telemetry{position,battery,speed,heading}` | `robot.telemetry.state` + `gnss` | posição vem do `status` do seguidor |
-
 ---
 
-## 5. Mudanças necessárias (todas na branch `main` do PLAAC)
+## 2. O que mudou desde 2026-09-09
 
-### 5.1 Schema: waypoints geográficos
-`mission.upload-1.1.json`: `waypoints.items` vira `oneOf` — o item métrico atual `{seq,x,y,z,yaw}`
-**ou** o geográfico `{seq, lat, lon, alt?, yaw?, tolerance_m?}`, válido quando `device.frame == "WGS84"`.
-Manter o 1.0 aceito, para não quebrar os testes existentes.
-
-### 5.2 Executor novo: `WaypointFollowerMissionExecutor`
-Mesmo contrato pato dos outros (`mission_id`, `started_at`, `start/cancel/pause/resume/join`,
-`on_progress`, `on_result`), mas conversando com o `agrobot_husky_nav`:
-- publica a missão em `<robot_ns>/gps_waypoint_follower/set_mission` (YAML/JSON inline);
-- chama `start` / `pause` / `stop` (`std_srvs/Trigger`) — **precisa de cliente de serviço**, que o PLAAC
-  ainda não usa em lugar nenhum (`create_client` = 0 ocorrências) e exige `std_srvs` no `package.xml`;
-- assina `<robot_ns>/gps_waypoint_follower/status` e traduz:
-  `RUNNING→RUNNING`, `PAUSED|BLOCKED→PAUSED` (+ evento com o motivo do campo `health`),
-  `DONE→COMPLETED`, `ABORTED→FAILED`, `wp_index/total→progress_pct` e `current_step{kind: WAYPOINT}`.
-- Atenção ao **deadlock**: a lógica do executor roda em thread própria enquanto o nó usa
-  `rclpy.spin` de thread única (`agent_manager_node.py:367`). Usar `MultiThreadedExecutor` +
-  `ReentrantCallbackGroup`, ou chamar os serviços de forma assíncrona.
-
-### 5.3 Configuração
-- `executor_type: simulated | nav2 | waypoint_follower` (ou import dinâmico como o `agent_class`),
-  no lugar do booleano `use_nav2`.
-- `robot_namespace: a300_00096` para resolver tópicos e serviços do seguidor.
-- Perfil `plaac_bringup/config/husky_a300_real.yaml`: `agent_id`, `protocol.mode: Real`,
-  `device.frame: WGS84`, `use_sim_time: false`.
-
-### 5.4 Telemetria real
-Interface de hardware que lê o `status` do seguidor (lat/lon, rumo, velocidade) e
-`platform/bms/state` (bateria) e alimenta `robot.telemetry.state` + `robot.telemetry.gnss`.
-Aproveitar `husky_hardware_interface.py` da branch `4-...`, **corrigindo o namespace** e ligando-a ao agente.
-
-### 5.5 Skills
-Ajustar a descrição de `follow_waypoints` (hoje diz "usando Nav2") e as precondições para o que o
-seguidor de fato exige: `rtk_fix` (gnss1/gnss2 ≥ 7), `scan_ok`, `joystick_present`, `estop_released`.
-Avaliar publicar `available: false` quando a saúde do seguidor reprovar — é a base para o
-"skill discovery" automático que está na lista de lacunas do próprio PLAAC.
-
-### 5.6 Adaptador `plaac_comms_bridge` (pacote novo)
-- Consome `activity_dispatch` e `activity_abort` do RabbitMQ; publica `activity_status`,
-  `agent_telemetry`, `agent_keep_alive`, `agent_details`.
-- Aceita os **dois** formatos de envelope v2 (`agentId` e `source`/`destination`).
-- Guarda o par `missionId`/`activityId` e o `correlationId` para a resposta.
-- Pode reusar `conversors/rabbitros` em vez de falar AMQP direto — decidir em §7.
-
----
-
-## 6. Plano por etapas (testável sem o robô)
-
-O laptop tem ROS 2 Jazzy e Docker, então dá para validar quase tudo antes de ir a campo.
-
-1. **Seguidor simulado** (`fake_waypoint_follower.py`): mesma interface do real (`set_mission`,
-   `start/pause/stop`, `status`), integrando a posição a partir de um lat/lon inicial. Fica em
-   `husky-config/tools/` ou no pacote de testes do PLAAC.
-2. **Schema 1.1 + executor novo + config**: testes unitários do PLAAC (rodam sem ROS) e um teste de
-   integração com o seguidor simulado.
-3. **Adaptador**: sobe o RabbitMQ do `agrobot-docker`, declara as 9 filas, publica um `activity_dispatch`
-   à mão (o exemplo `examples/activity_dispatch.json` serve) e confirma `activity_status` de volta.
-4. **Ponta a ponta simulado**: serviços (ou script) → RabbitMQ → adaptador → PLAAC → seguidor simulado.
-5. **Ponta a ponta real**: trocar o seguidor simulado pelo `agrobot_husky_nav` no Husky. Primeira
-   missão: 2 waypoints a 5 m, 0,3 m/s, operador com o joystick (L1 pausa, Círculo aborta).
-6. **Ajustes de campo**: latência do RabbitMQ pela Wi-Fi, reconexão, comportamento quando o RTK cai
-   (o seguidor pausa sozinho — o PLAAC precisa reportar isso como `PAUSED` com motivo, não como falha).
-
----
-
-## 7. Decisões pendentes (precisam de acordo com o time)
-
-1. **Contrato**: adaptador no robô preservando o v1 do PLAAC (proposta acima) **ou** reescrever o
-   PLAAC para falar v2 direto no RabbitMQ? A primeira é menos invasiva e preserva ack/progresso;
-   a segunda elimina uma camada e uma tradução.
-2. **Onde mora o código**: executor e schema no repositório do PLAAC (natural); o adaptador junto do
-   PLAAC ou em `comms/agrobot-communication`? Sugestão: começar no PLAAC e mover depois de estabilizar.
-3. **Identidade do agente**: hoje o `agent_id` do PLAAC é ao mesmo tempo prefixo de tópico e
-   `device.id` obrigatório. Usar `a300_00096` (namespace ROS do robô) ou o `agents.id` do banco dos
-   serviços? Precisamos de um mapa explícito entre os dois.
-4. **Waypoints**: os serviços só geram waypoints por cobertura de área. Para os nossos testes é
-   preciso um caminho de "lista de waypoints avulsa" (endpoint novo, ou o adaptador aceitando um
-   arquivo local como o que gravamos com `record_waypoints.py`).
-5. **Broker em campo**: RabbitMQ roda no laptop (rede Agriwing, sem WAN). Definir endereço fixo,
-   credenciais e o que acontece quando o link cai no meio de uma missão.
-
----
-
-## 8. Referências rápidas
-
-| Assunto | Onde |
+| Antes | Agora |
 |---|---|
-| Contrato v2 e exemplos | `comms/agrobot-json-message-lib/SCHEMAS.md`, `examples/activity_dispatch.json` |
-| Ponte RabbitMQ↔ROS | `comms/agrobot-communication/conversors/rabbitros/` |
-| Despacho e filas | `services/agrobot-orchestrator/src/models/activities/Activity.ts`, `src/handlers/rabbitmq/index.ts` |
-| Robô falso de referência | `services/agrobot-orchestrator/.scripts/test-simulation.ts` |
-| Nó do agent-manager | `agrobot-physical-layer/plaac/plaac_manager_py/plaac_manager_py/agent_manager_node.py` |
-| Schemas do PLAAC | `.../plaac_manager_py/schemas/` (13 arquivos Draft-07) |
-| Skills do Husky | `.../agent_examples/husky_a300/husky_a300_ugv_agent.py` (`SKILL_DESCRIPTORS`) |
-| Executor Nav2 (modelo) | `.../plaac_manager_py/nav2_mission_executor.py` |
-| Interface do nosso seguidor | `husky-config/agrobot_husky_nav/README.md` |
+| Orquestrador mandava `agentId`/`protocol` | Manda `source`/`destination`, o contrato publicado |
+| `activity_abort` declarada e nunca enviada | `Activity.abort()` publica de verdade |
+| Identidade do agente combinada na mão | Coluna `destination_id` na tabela de agentes, preenchida na UI |
+| Ponte `rabbitros` com bug de protobuf | Substituída pelo gateway `protocol_hub` |
+| Três cópias divergentes de schemas | Biblioteca v2 única, usada como submódulo pelo gateway |
+
+**Continua igual:** o PLAAC não fala nada disso. Ele tem dialeto próprio, com tópicos
+`/agrobot/<agent_id>/...`, mensagens `mission.upload`/`ack`/`progress`/`result` e waypoints
+**métricos**. Não há uma linha sequer sobre PLAAC dentro do gateway.
+
+---
+
+## 3. O gateway, que é a peça nova
+
+Serviço Python em contêiner, imagem sobre `ros:jazzy-ros-base`. O **mesmo binário** roda nas duas
+pontas, escolhido por papel: `service` na workstation, com borda RabbitMQ, e `agent` no robô, com
+borda ROS 2. Entre as duas pontas ele serializa em protobuf e envia por UDP.
+
+No robô ele expõe **nove tópicos planos**, todos `std_msgs/String` com o envelope JSON dentro:
+
+| Direção | Tópicos |
+|---|---|
+| Gateway **publica** (serviços → robô) | `/activity_dispatch`, `/activity_abort`, `/agent_config`, `/agent_alert` |
+| Gateway **assina** (robô → serviços) | `/agent_telemetry`, `/activity_status`, `/agent_details`, `/agent_keep_alive`, `/agent_emergency` |
+
+Os nomes dos tópicos são **absolutos**, sem namespace. Roteamento por `destination`: o gateway do
+robô ignora silenciosamente tudo que não for endereçado a ele.
+
+### A identidade é a palavra `husky`
+
+Minúscula, sem sufixo, e precisa bater em quatro lugares: variável do contêiner, mapa de pares da
+topologia, campo do envelope e coluna `destination_id` no banco dos serviços. Nossa ponte já usa
+`husky`, então esse ponto já está certo.
+
+---
+
+## 4. Três armadilhas verificadas no código
+
+Não são suposições: conferi cada uma nos arquivos.
+
+### 4.1 O envelope rejeita campos extras
+
+Todos os nove esquemas têm `additionalProperties: false` **no topo e dentro do payload**. O envelope
+aceita exatamente sete campos: `source`, `destination`, `version`, `correlationId`, `timestamp`,
+`seq`, `payload`.
+
+Nossa ponte manda `agentId` e `protocol` além desses, de propósito, para funcionar com as duas
+leituras do envelope. **O gateway descarta essas mensagens**, e descarta no próprio robô, porque
+valida na entrada e de novo depois do enlace. Quando migrarmos, esses dois campos têm que sair.
+
+### 4.2 A QoS do gateway não casa com um assinante comum
+
+O gateway publica e assina tudo com `BEST_EFFORT` + `VOLATILE`. O padrão de um assinante ROS 2 é
+`RELIABLE`, e `RELIABLE` **não casa** com um publicador `BEST_EFFORT`. Ou seja, um
+`create_subscription(String, '/activity_dispatch', cb, 10)` escrito do jeito natural **não recebe
+nada, sem erro nenhum**. É a falha silenciosa mais provável de toda essa integração.
+
+Consequência de projeto: o despacho de missão é sem garantia de entrega. Uma missão publicada
+enquanto nosso nó reinicia se perde para sempre. O reconhecimento tem que ser da aplicação, por
+`activity_status`.
+
+### 4.3 O gateway não enxerga os tópicos do nosso robô
+
+O perfil do Husky fixa `ROS_DOMAIN_ID=22`. Nosso A300 roda no domínio 0 e **atrás de um FastDDS
+Discovery Server**, que é justamente por isso que a ponte atual existe. O gateway não define
+`ROS_DISCOVERY_SERVER` nem `ROS_SUPER_CLIENT` em lugar nenhum, conferido por busca no repositório
+inteiro.
+
+**Este é o bloqueio de verdade.** Sem resolver, o contêiner sobe, roda e não vê tópico nenhum. O
+único sinal é o contador de assinantes zerado no log dele.
+
+Dois caminhos: acrescentar as variáveis de descoberta ao contêiner, ou rodar um nó pequeno dentro do
+ambiente ROS do robô que faça a ponte entre o grafo do robô e o domínio 22.
+
+---
+
+## 5. O estado real do PLAAC
+
+O `main` é a única versão funcional: 85 testes passam. Mas o que interessa para nós está incompleto.
+
+**Falta, e é bloqueante para um robô real:**
+
+1. **Não há como injetar uma interface de hardware.** O bootstrap chama a classe do agente sem
+   argumentos e não existe chave de configuração para a interface. Toda implantação hoje roda o
+   stub, cujo estado é a constante `IDLE`. A telemetria do PLAAC não tem como carregar dado real.
+2. **Waypoints só em métrico.** O esquema exige `{seq, x, y, z, yaw}`. Uma missão em lat/lon é
+   recusada com `SCHEMA_INVALID`, e lat/lon é o que os serviços mandam.
+3. **A escolha de executor é um booleano** `use_nav2`. Acrescentar um terceiro destino, como o nosso
+   seguidor, exige editar o nó.
+4. **Giro de thread única.** Qualquer cliente de serviço chamado de dentro de um executor trava. O
+   nosso seguidor é comandado por serviços `Trigger`, então isso nos atinge direto.
+5. **Sem reconhecimento para cancelar, pausar e retomar**, embora o esquema preveja.
+6. **Pausa e retomada do executor Nav2 são no-ops** que só escrevem no log.
+
+**Ramos abertos, não integrados:**
+
+| Ramo | Data | O que tem | Serve? |
+|---|---|---|---|
+| `10-desenvolver-o-message-handler` | 17/09 | Migração para a biblioteca v2 | **Não**, está com 298 de 373 linhas do nó comentadas |
+| `8-adicionar-submódulo-protocol-json-msg-lib` | 17/09 | Só o submódulo e o invólucro | Parcialmente |
+| `4-desenvolver-hardware-interface-plaac` | 28/08 | 486 linhas de interface do Husky | **Em parte**, ver abaixo |
+
+A interface do ramo 4 lê odometria e bateria e preenche o estado, o que resolveria o item 1. Mas ela
+é de teleoperação, com métodos de andar para frente e girar, e usa namespace `a300_0000`, tópico de
+bateria e de odometria que não são os do nosso robô. Aproveitável com correções.
+
+O ramo 10 merece atenção: alguém começou a migrar o PLAAC para o protocolo v2. Se isso for em frente,
+a tradução entre dialetos encolhe muito. Vale alinhar antes de escrever código que o trabalho dessa
+pessoa tornaria desnecessário.
+
+---
+
+## 6. Duas arquiteturas possíveis
+
+### A — Robô fala direto com o gateway, sem PLAAC
+
+`agrobot_husky_nav` ganha um nó que assina os quatro tópicos de comando e publica os cinco de
+relatório. Traduz `activity_dispatch` em missão do seguidor e o estado do seguidor em
+`activity_status`.
+
+Prós: caminho mais curto para um teste de ponta a ponta, e os construtores de payload que já temos
+na ponte são reaproveitados quase inteiros. Contra: o PLAAC fica de fora, e ele é o objetivo.
+
+### B — PLAAC no meio
+
+O mesmo nó acima, mas em vez de falar com o seguidor, fala com o PLAAC no dialeto dele, e o PLAAC
+ganha um executor que comanda o seguidor.
+
+Prós: é o objetivo declarado, e preserva o reconhecimento e o progresso por waypoint que o PLAAC já
+sabe produzir, mais ricos que o `activity_status`. Contra: exige resolver os seis itens da seção 5.
+
+**Recomendação:** fazer A primeiro, como andaime. Ele destrava o teste de ponta a ponta, prova o
+enlace do gateway e a descoberta DDS, e o trabalho não se perde: o tradutor de mensagens é o mesmo
+nos dois desenhos, muda só com quem ele conversa do lado de dentro.
+
+---
+
+## 7. Ordem de ataque
+
+1. **Descoberta DDS** (seção 4.3). Sem isso nada mais importa. Testável no laboratório, hoje.
+2. **Enlace do gateway ponta a ponta**, com os scripts de demonstração que ele traz, antes de
+   escrever qualquer código nosso.
+3. **Nó tradutor no robô**, com a QoS certa. Primeiro só os relatórios, que é o que já sabemos
+   montar, depois o consumo de comandos.
+4. **Aposentar a ponte AMQP atual**, sem rodar as duas ao mesmo tempo para comandos.
+5. **PLAAC**: injeção da interface de hardware, esquema de waypoint geográfico, executor do
+   seguidor, giro multi-thread.
+6. **Ponta a ponta com PLAAC no meio.**
+
+---
+
+## 8. Decisões pendentes
+
+- **O ramo 10 vai em frente?** Se o PLAAC migrar para o v2, a tradução de dialeto some quase toda.
+- **Onde mora o tradutor?** Pacote novo no `husky-config`, ou dentro do PLAAC. Afeta quem mantém.
+- **A descoberta DDS se resolve no contêiner ou com um nó relé?** A primeira é mais limpa, a segunda
+  não depende de mexer no repositório de outra pessoa.
+- **O gateway roda no próprio Husky ou num computador de bordo à parte?** O perfil pressupõe rede
+  no modo host e porta UDP 15550 aberta nos dois sentidos.
